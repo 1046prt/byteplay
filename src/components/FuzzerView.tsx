@@ -1,5 +1,11 @@
 import { useState } from "react";
 import { commands } from "../commands";
+import {
+  DEFAULT_PORT,
+  DEFAULT_FUZZ_TIMEOUT_MS,
+  DEFAULT_FUZZ_ITERATIONS,
+  DEFAULT_FUZZ_MUTATION_RATE,
+} from "../constants";
 import type { CapturedPacket, FuzzConfig, FuzzResult } from "../types";
 import { HexViewer } from "./HexViewer";
 
@@ -10,11 +16,11 @@ interface FuzzerViewProps {
 
 export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps) {
   const [targetHost, setTargetHost] = useState("127.0.0.1");
-  const [targetPort, setTargetPort] = useState("8080");
+  const [targetPort, setTargetPort] = useState(String(DEFAULT_PORT));
   const [protocol, setProtocol] = useState("TCP");
-  const [iterations, setIterations] = useState("10");
-  const [mutationRate, setMutationRate] = useState("0.1");
-  const [timeout, setTimeout_] = useState("3000");
+  const [iterations, setIterations] = useState(String(DEFAULT_FUZZ_ITERATIONS));
+  const [mutationRate, setMutationRate] = useState(String(DEFAULT_FUZZ_MUTATION_RATE));
+  const [timeout, setTimeout_] = useState(String(DEFAULT_FUZZ_TIMEOUT_MS));
   const [allowExternal, setAllowExternal] = useState(false);
   const [customPayload, setCustomPayload] = useState("");
   const [useCustom, setUseCustom] = useState(false);

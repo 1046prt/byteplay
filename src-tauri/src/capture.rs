@@ -1,5 +1,5 @@
 use log::{error, info, warn};
-use pnet::datalink::{self, Channel, Config, DataLinkSender};
+use pnet::datalink::{self, Config};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -153,7 +153,9 @@ impl CaptureEngine {
                 }
             }
 
-            *packet_count.lock().unwrap() = count;
+            if let Ok(mut pc) = packet_count.lock() {
+                *pc = count;
+            }
             running.store(false, Ordering::SeqCst);
             info!("Capture stopped. Total packets: {}", count);
         });
@@ -170,23 +172,30 @@ impl CaptureEngine {
     }
 
     pub fn store_packet(&self, packet: CapturedPacket) {
-        self.packets.lock().unwrap().push(packet);
+        if let Ok(mut packets) = self.packets.lock() {
+            packets.push(packet);
+        }
     }
 
     pub fn get_packets(&self) -> Vec<CapturedPacket> {
-        self.packets.lock().unwrap().clone()
+        self.packets
+            .lock()
+            .map(|packets| packets.clone())
+            .unwrap_or_default()
     }
 
     pub fn get_packet_by_id(&self, id: &str) -> Option<CapturedPacket> {
         self.packets
             .lock()
-            .unwrap()
-            .iter()
-            .find(|p| p.id == id)
-            .cloned()
+            .ok()
+            .and_then(|packets| {
+                packets.iter().find(|p| p.id == id).cloned()
+            })
     }
 
     pub fn clear_packets(&self) {
-        self.packets.lock().unwrap().clear();
+        if let Ok(mut packets) = self.packets.lock() {
+            packets.clear();
+        }
     }
 }

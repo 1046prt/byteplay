@@ -4,6 +4,8 @@ use socket2::{Domain, Protocol, Socket, Type};
 use std::net::ToSocketAddrs;
 use std::time::Duration;
 
+const RESPONSE_BUFFER_SIZE: usize = 65535;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplayConfig {
     pub target_host: String,
@@ -138,7 +140,7 @@ fn send_tcp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, Strin
         .write_all(data)
         .map_err(|e| format!("TCP write failed: {}", e))?;
 
-    let mut buf = vec![0u8; 65535];
+    let mut buf = vec![0u8; RESPONSE_BUFFER_SIZE];
     let mut response = Vec::new();
 
     match std_socket.read(&mut buf) {
@@ -183,7 +185,7 @@ fn send_udp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, Strin
         .map_err(|e| format!("UDP send failed: {}", e))?;
 
     let std_socket: std::net::UdpSocket = socket.into();
-    let mut buf = vec![0u8; 65535];
+    let mut buf = vec![0u8; RESPONSE_BUFFER_SIZE];
 
     match std_socket.recv_from(&mut buf) {
         Ok((n, _)) => {

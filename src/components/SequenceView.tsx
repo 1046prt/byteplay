@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { commands } from "../commands";
+import { DEFAULT_PORT, DEFAULT_TIMEOUT_MS } from "../constants";
 import type { SavedPacket, SequenceStep, SavedSequence, ReplayResult } from "../types";
 
 interface SequenceViewProps {
@@ -30,7 +31,7 @@ export function SequenceView({
       protocol: packet.protocol,
       data: packet.raw_bytes,
       delay_ms: 0,
-      timeout_ms: 5000,
+      timeout_ms: DEFAULT_TIMEOUT_MS,
     };
     setSteps([...steps, newStep]);
   };
@@ -38,7 +39,7 @@ export function SequenceView({
   const extractPort = (endpoint: string): number => {
     const parts = endpoint.split(":");
     const port = parseInt(parts[parts.length - 1], 10);
-    return isNaN(port) ? 80 : port;
+    return isNaN(port) ? DEFAULT_PORT : port;
   };
 
   const removeStep = (index: number) => {
@@ -47,7 +48,7 @@ export function SequenceView({
 
   const updateStep = (index: number, field: keyof SequenceStep, value: string | number) => {
     const updated = [...steps];
-    (updated[index] as any)[field] = value;
+    updated[index] = { ...updated[index], [field]: value };
     setSteps(updated);
   };
 

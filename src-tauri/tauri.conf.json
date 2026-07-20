@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "PacketForge",
+  "productName": "byteplay",
   "version": "0.1.0",
   "identifier": "com.byteplay.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "PacketForge — Network Packet Analyzer & Replayer",
+        "title": "byteplay — Network Packet Analyzer & Replayer",
         "width": 1400,
         "height": 900,
         "minWidth": 1000,
@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {

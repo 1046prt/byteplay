@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::info;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -6,6 +6,11 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::capture::CapturedPacket;
+
+const PCAP_MAGIC: u32 = 0xa1b2c3d4;
+const PCAP_VERSION_MAJOR: u16 = 2;
+const PCAP_VERSION_MINOR: u16 = 4;
+const PCAP_LINKTYPE_ETHERNET: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedPacket {
@@ -208,7 +213,7 @@ impl Storage {
         let db = self.db.lock().map_err(|e| e.to_string())?;
         let mut stmt = db
             .prepare(
-                "SELECT id, packet_id, packet_name, timestamp, target_host, target_port, protocol, bytes_sent, success, response_bytes, error, duration_ms FROM replay_history ORDER BY timestamp DESC LIMIT 500",
+                "SELECT id, packet_id, packet_name, timestamp, target_host, target_port, protocol, bytes_sent, success, response_bytes, error, duration_ms FROM replay_history ORDER BY timestamp DESC LIMIT {}", MAX_HISTORY_LIMIT,
             )
             .map_err(|e| e.to_string())?;
 
@@ -308,21 +313,17 @@ impl Storage {
         use std::io::Write;
 
         // PCAP global header
-        let magic_number: u32 = 0xa1b2c3d4;
-        let version_major: u16 = 2;
-        let version_minor: u16 = 4;
         let thiszone: i32 = 0;
         let sigfigs: u32 = 0;
         let snaplen: u32 = 65535;
-        let network: u32 = 1; // LINKTYPE_ETHERNET
 
-        writer.write_all(&magic_number.to_le_bytes()).map_err(|e| e.to_string())?;
-        writer.write_all(&version_major.to_le_bytes()).map_err(|e| e.to_string())?;
-        writer.write_all(&version_minor.to_le_bytes()).map_err(|e| e.to_string())?;
+        writer.write_all(&PCAP_MAGIC.to_le_bytes()).map_err(|e| e.to_string())?;
+        writer.write_all(&PCAP_VERSION_MAJOR.to_le_bytes()).map_err(|e| e.to_string())?;
+        writer.write_all(&PCAP_VERSION_MINOR.to_le_bytes()).map_err(|e| e.to_string())?;
         writer.write_all(&thiszone.to_le_bytes()).map_err(|e| e.to_string())?;
         writer.write_all(&sigfigs.to_le_bytes()).map_err(|e| e.to_string())?;
         writer.write_all(&snaplen.to_le_bytes()).map_err(|e| e.to_string())?;
-        writer.write_all(&network.to_le_bytes()).map_err(|e| e.to_string())?;
+        writer.write_all(&PCAP_LINKTYPE_ETHERNET.to_le_bytes()).map_err(|e| e.to_string())?;
 
         for packet in packets {
             let ts = chrono::DateTime::parse_from_rfc3339(&packet.timestamp)

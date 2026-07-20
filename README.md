@@ -1,12 +1,12 @@
-# PacketForge
+# byteplay
 
 **Multi-platform network packet analyzer & replayer** — capture, edit, and replay raw TCP/UDP packets to test server resilience.
 
 ---
 
-## Why PacketForge?
+## Why byteplay?
 
-| Tool | Limitation | PacketForge's Edge |
+| Tool | Limitation | byteplay's Edge |
 |---|---|---|
 | Wireshark | Capture/analyze only, no edit-and-resend | Full round-trip: capture → edit → replay |
 | Burp Suite | HTTP/HTTPS only | Protocol-agnostic (raw TCP/UDP, any payload) |
@@ -88,6 +88,7 @@ byteplay/
 │   └── style.css
 ├── index.html
 ├── vite.config.ts
+├── LICENSE
 └── README.md
 ```
 
@@ -99,9 +100,10 @@ byteplay/
 
 - **Node.js** 18+ and npm
 - **Rust** toolchain (via [rustup](https://rustup.rs/))
-- **Visual Studio Build Tools** with "C++ build tools" workload (for Windows)
-- **Npcap** (for live packet capture — [npcap.com](https://npcap.com/))
-- On Linux: `libpcap-dev` (`sudo apt install libpcap-dev`)
+- **Platform-specific requirements:**
+  - **Windows:** [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "C++ build tools" workload + [Npcap](https://npcap.com/)
+  - **macOS:** Xcode Command Line Tools (`xcode-select --install`) + [Homebrew libpcap](https://formulae.brew.sh/formula/libpcap) (`brew install libpcap`)
+  - **Linux:** `sudo apt install libpcap-dev`
 
 ### Install Dependencies
 
@@ -148,6 +150,12 @@ This tool touches raw sockets and packet crafting. Please note:
 
 ---
 
+## Contributing
+
+Contributions welcome! Please open an issue or PR on [GitHub](https://github.com/1046prt/byteplay).
+
+---
+
 ## License
 
-MIT
+[MIT](LICENSE)

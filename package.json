@@ -2,6 +2,9 @@
   "name": "byteplay",
   "private": true,
   "version": "0.1.0",
+  "description": "Multi-platform network packet analyzer and replayer — capture, edit, and replay raw TCP/UDP packets",
+  "license": "MIT",
+  "keywords": ["network", "packet", "analyzer", "replay", "fuzzer", "tauri", "pcap"],
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -22,7 +25,6 @@
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.6",
     "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-shell": "^2.3.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   }

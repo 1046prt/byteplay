@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { HEX_DISPLAY_LIMIT } from "../constants";
 import type { CapturedPacket } from "../types";
 
 interface PacketListProps {
@@ -66,7 +67,7 @@ function getFlags(p: CapturedPacket): string {
 
 function getPreview(p: CapturedPacket): string {
   const ascii = p.payload_ascii;
-  if (ascii.length > 60) return ascii.substring(0, 60) + "…";
+  if (ascii.length > HEX_DISPLAY_LIMIT) return ascii.substring(0, HEX_DISPLAY_LIMIT) + "…";
   return ascii || "—";
 }
 

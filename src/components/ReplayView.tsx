@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { commands } from "../commands";
+import { DEFAULT_PORT, DEFAULT_TIMEOUT_MS } from "../constants";
 import type { CapturedPacket, ReplayConfig, ReplayResult, ReplayRecord } from "../types";
 import { HexViewer } from "./HexViewer";
 
@@ -17,9 +18,9 @@ export function ReplayView({
   setStatusMessage,
 }: ReplayViewProps) {
   const [targetHost, setTargetHost] = useState("127.0.0.1");
-  const [targetPort, setTargetPort] = useState("8080");
+  const [targetPort, setTargetPort] = useState(String(DEFAULT_PORT));
   const [protocol, setProtocol] = useState("TCP");
-  const [timeout, setTimeout_] = useState("5000");
+  const [timeout, setTimeout_] = useState(String(DEFAULT_TIMEOUT_MS));
   const [allowExternal, setAllowExternal] = useState(false);
   const [customPayload, setCustomPayload] = useState("");
   const [useCustom, setUseCustom] = useState(false);

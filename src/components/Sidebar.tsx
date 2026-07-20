@@ -1,4 +1,5 @@
 import type { ViewMode } from "../types";
+import { APP_VERSION } from "../constants";
 
 interface SidebarProps {
   currentView: ViewMode;
@@ -36,10 +37,10 @@ export function Sidebar({
       <div className="p-4 border-b border-[#1e293b]">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-sm font-bold">
-            PF
+            BP
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-white">PacketForge</h1>
+            <h1 className="text-sm font-semibold text-white">byteplay</h1>
             <p className="text-[10px] text-gray-500">Packet Analyzer</p>
           </div>
         </div>
@@ -73,7 +74,7 @@ export function Sidebar({
 
       <div className="p-3 border-t border-[#1e293b]">
         <div className="text-[10px] text-gray-600 text-center">
-          v0.1.0 • Local-first
+          v{APP_VERSION} • Local-first
         </div>
         <div className="text-[9px] text-gray-700 text-center mt-1">
           For authorized testing only

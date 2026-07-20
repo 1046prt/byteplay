@@ -14,7 +14,6 @@ pub struct AppState {
     pub capture_engine: CaptureEngine,
     pub storage: Mutex<Storage>,
     pub capture_rx: Mutex<Option<mpsc::Receiver<CapturedPacket>>>,
-    pub replay_tx: Mutex<Option<mpsc::Sender<replay::FuzzResult>>>,
 }
 
 #[tauri::command]
@@ -201,12 +200,14 @@ fn delete_saved_packet(
 }
 
 #[tauri::command]
-fn replay_packet(
+async fn replay_packet(
     state: State<'_, AppState>,
     data: Vec<u8>,
     config: ReplayConfig,
 ) -> Result<replay::ReplayResult, String> {
-    let result = replay::replay_packet(&data, config.clone());
+    let result = tauri::async_runtime::spawn_blocking(move || replay::replay_packet(&data, config.clone()))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?;
 
     let record = ReplayRecord {
         id: uuid::Uuid::new_v4().to_string(),
@@ -237,12 +238,16 @@ fn get_replay_history(state: State<'_, AppState>) -> Result<Vec<ReplayRecord>, S
 }
 
 #[tauri::command]
-fn execute_replay_sequence(
+async fn execute_replay_sequence(
     state: State<'_, AppState>,
     steps: Vec<SequenceStep>,
     allow_external: bool,
 ) -> Result<Vec<replay::ReplayResult>, String> {
-    let results = execute_sequence(steps, allow_external);
+    let results = tauri::async_runtime::spawn_blocking(move || {
+        execute_sequence(steps, allow_external)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?;
 
     if let Ok(storage) = state.storage.lock() {
         for result in &results {
@@ -268,11 +273,37 @@ fn execute_replay_sequence(
 }
 
 #[tauri::command]
-fn run_fuzzer(
+async fn run_fuzzer(
     state: State<'_, AppState>,
     config: FuzzConfig,
 ) -> Result<Vec<replay::FuzzResult>, String> {
-    Ok(replay::run_fuzz(config, None))
+    let results = tauri::async_runtime::spawn_blocking(move || {
+        replay::run_fuzz(config, None)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    if let Ok(storage) = state.storage.lock() {
+        for result in &results {
+            let record = ReplayRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                packet_id: None,
+                packet_name: None,
+                timestamp: result.replay_result.timestamp.clone(),
+                target_host: result.replay_result.target.clone(),
+                target_port: 0,
+                protocol: String::new(),
+                bytes_sent: result.replay_result.bytes_sent,
+                success: result.replay_result.success,
+                response_bytes: result.replay_result.response.clone(),
+                error: result.replay_result.error.clone(),
+                duration_ms: result.replay_result.duration_ms,
+            };
+            let _ = storage.record_replay(&record);
+        }
+    }
+
+    Ok(results)
 }
 
 #[tauri::command]
@@ -389,7 +420,6 @@ pub fn run() {
         capture_engine: CaptureEngine::new(),
         storage: Mutex::new(storage),
         capture_rx: Mutex::new(None),
-        replay_tx: Mutex::new(None),
     };
 
     tauri::Builder::default()

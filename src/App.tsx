@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { commands } from "./commands";
+import { POLL_INTERVAL_MS } from "./constants";
 import type {
   CapturedPacket,
   SavedPacket,
@@ -39,7 +40,7 @@ export default function App() {
 
   useEffect(() => {
     if (isCapturing) {
-      pollRef.current = window.setInterval(pollPackets, 100);
+      pollRef.current = window.setInterval(pollPackets, POLL_INTERVAL_MS);
     } else if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
