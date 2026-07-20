@@ -31,10 +31,11 @@ pub struct CapturedPacket {
     pub capture_index: usize,
 }
 
+const MAX_STORED_PACKETS: usize = 10000;
+
 pub struct CaptureEngine {
     running: Arc<AtomicBool>,
     packets: Arc<Mutex<Vec<CapturedPacket>>>,
-    packet_count: Arc<Mutex<usize>>,
 }
 
 impl CaptureEngine {
@@ -42,7 +43,6 @@ impl CaptureEngine {
         Self {
             running: Arc::new(AtomicBool::new(false)),
             packets: Arc::new(Mutex::new(Vec::new())),
-            packet_count: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -65,13 +65,6 @@ impl CaptureEngine {
                     format!("{} [{}]", iface.name, addrs.join(", "))
                 }
             })
-            .collect()
-    }
-
-    pub fn list_interface_names() -> Vec<String> {
-        datalink::interfaces()
-            .iter()
-            .map(|iface| iface.name.clone())
             .collect()
     }
 
@@ -98,7 +91,6 @@ impl CaptureEngine {
 
         self.running.store(true, Ordering::SeqCst);
         let running = self.running.clone();
-        let packet_count = self.packet_count.clone();
 
         thread::spawn(move || {
             info!("Capture started on interface: {}", config.interface_name);
@@ -153,9 +145,6 @@ impl CaptureEngine {
                 }
             }
 
-            if let Ok(mut pc) = packet_count.lock() {
-                *pc = count;
-            }
             running.store(false, Ordering::SeqCst);
             info!("Capture stopped. Total packets: {}", count);
         });
@@ -173,6 +162,9 @@ impl CaptureEngine {
 
     pub fn store_packet(&self, packet: CapturedPacket) {
         if let Ok(mut packets) = self.packets.lock() {
+            if packets.len() >= MAX_STORED_PACKETS {
+                packets.remove(0);
+            }
             packets.push(packet);
         }
     }

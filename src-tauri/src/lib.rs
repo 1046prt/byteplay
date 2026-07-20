@@ -22,11 +22,6 @@ fn list_interfaces() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn list_interface_names() -> Result<Vec<String>, String> {
-    Ok(CaptureEngine::list_interface_names())
-}
-
-#[tauri::command]
 fn start_capture(
     state: State<'_, AppState>,
     config: CaptureConfig,
@@ -49,11 +44,6 @@ fn stop_capture(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn is_capture_running(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.capture_engine.is_running())
-}
-
-#[tauri::command]
 fn poll_packets(state: State<'_, AppState>) -> Result<Vec<CapturedPacket>, String> {
     let rx_lock = state.capture_rx.lock().map_err(|e| e.to_string())?;
     if let Some(ref rx) = *rx_lock {
@@ -72,11 +62,6 @@ fn poll_packets(state: State<'_, AppState>) -> Result<Vec<CapturedPacket>, Strin
     } else {
         Ok(Vec::new())
     }
-}
-
-#[tauri::command]
-fn get_all_packets(state: State<'_, AppState>) -> Result<Vec<CapturedPacket>, String> {
-    Ok(state.capture_engine.get_packets())
 }
 
 #[tauri::command]
@@ -436,12 +421,9 @@ pub fn run() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             list_interfaces,
-            list_interface_names,
             start_capture,
             stop_capture,
-            is_capture_running,
             poll_packets,
-            get_all_packets,
             get_packet_by_id,
             clear_packets,
             save_packet,

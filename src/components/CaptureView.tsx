@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { commands } from "../commands";
 import type { CapturedPacket, CaptureConfig } from "../types";
 import { PacketList } from "./PacketList";
@@ -13,7 +13,6 @@ interface CaptureViewProps {
   onClearPackets: () => void;
   onSaved: () => void;
   setStatusMessage: (msg: string) => void;
-  setPackets: React.Dispatch<React.SetStateAction<CapturedPacket[]>>;
 }
 
 export function CaptureView({
@@ -25,17 +24,27 @@ export function CaptureView({
   onClearPackets,
   onSaved,
   setStatusMessage,
-  setPackets,
 }: CaptureViewProps) {
   const [interfaces, setInterfaces] = useState<string[]>([]);
   const [selectedInterface, setSelectedInterface] = useState("");
   const [bpfFilter, setBpfFilter] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [filterText, setFilterText] = useState("");
+  const [debouncedFilter, setDebouncedFilter] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
+  const debounceRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadInterfaces();
   }, []);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(() => setDebouncedFilter(filterText), 150);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [filterText]);
 
   const loadInterfaces = async () => {
     try {
@@ -90,9 +99,19 @@ export function CaptureView({
     }
   };
 
-  const filteredPackets = packets.filter((p) => {
-    if (!filterText) return true;
-    const lower = filterText.toLowerCase();
+  const handleClear = () => {
+    if (confirmClear) {
+      onClearPackets();
+      setConfirmClear(false);
+    } else {
+      setConfirmClear(true);
+      setTimeout(() => setConfirmClear(false), 3000);
+    }
+  };
+
+  const filteredPackets = useMemo(() => packets.filter((p) => {
+    if (!debouncedFilter) return true;
+    const lower = debouncedFilter.toLowerCase();
     return (
       p.payload_hex.toLowerCase().includes(lower) ||
       p.payload_ascii.toLowerCase().includes(lower) ||
@@ -103,7 +122,7 @@ export function CaptureView({
       (p.udp?.src_port.toString().includes(lower)) ||
       (p.udp?.dst_port.toString().includes(lower))
     );
-  });
+  }), [packets, debouncedFilter]);
 
   return (
     <div className="flex h-full">
@@ -144,8 +163,8 @@ export function CaptureView({
             onChange={(e) => setFilterText(e.target.value)}
             className="input text-xs flex-1 max-w-[200px]"
           />
-          <button onClick={onClearPackets} className="btn btn-secondary text-xs">
-            Clear
+          <button onClick={handleClear} className={`btn text-xs ${confirmClear ? "btn-danger" : "btn-secondary"}`}>
+            {confirmClear ? "Confirm?" : "Clear"}
           </button>
           {selectedPacket && (
             <button
@@ -165,8 +184,6 @@ export function CaptureView({
       <div className="w-[480px] min-w-[380px] shrink-0">
         <PacketDetail
           packet={selectedPacket}
-          onSaved={onSaved}
-          setStatusMessage={setStatusMessage}
         />
       </div>
 
@@ -190,6 +207,14 @@ function SaveDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">

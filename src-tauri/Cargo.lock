@@ -220,6 +220,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
+name = "byteplay"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "crossbeam-channel",
+ "dirs-next",
+ "log",
+ "pnet",
+ "rand",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "socket2 0.5.10",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-log",
+ "uuid",
+]
+
+[[package]]
 name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2182,27 +2203,6 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
-
-[[package]]
-name = "byteplay"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "crossbeam-channel",
- "dirs-next",
- "log",
- "pnet",
- "rand",
- "rusqlite",
- "serde",
- "serde_json",
- "socket2 0.5.10",
- "tauri",
- "tauri-build",
- "tauri-plugin-log",
- "uuid",
-]
 
 [[package]]
 name = "pango"

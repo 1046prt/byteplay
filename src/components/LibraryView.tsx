@@ -17,6 +17,7 @@ export function LibraryView({
 }: LibraryViewProps) {
   const [searchText, setSearchText] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   const filtered = savedPackets.filter((p) => {
     if (!searchText) return true;
@@ -30,13 +31,13 @@ export function LibraryView({
     );
   });
 
-  const handleDelete = async (id: string, name: string) => {
-    try {
-      await commands.deleteSavedPacket(id);
-      setStatusMessage(`Deleted "${name}"`);
-      onRefresh();
-    } catch (e) {
-      setStatusMessage(`Failed to delete: ${e}`);
+  const handleDeleteClick = (id: string, name: string) => {
+    if (pendingDelete?.id === id) {
+      handleDelete(id, name);
+      setPendingDelete(null);
+    } else {
+      setPendingDelete({ id, name });
+      setTimeout(() => setPendingDelete(null), 3000);
     }
   };
 
@@ -123,11 +124,13 @@ export function LibraryView({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDelete(p.id, p.name);
+                      handleDeleteClick(p.id, p.name);
                     }}
-                    className="btn btn-danger text-[10px] px-2 py-0.5 opacity-50 hover:opacity-100"
+                    className={`btn text-[10px] px-2 py-0.5 ${
+                      pendingDelete?.id === p.id ? "btn-danger opacity-100" : "btn-danger opacity-50 hover:opacity-100"
+                    }`}
                   >
-                    ×
+                    {pendingDelete?.id === p.id ? "Sure?" : "×"}
                   </button>
                 </div>
                 {p.description && (

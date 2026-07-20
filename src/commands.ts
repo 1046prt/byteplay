@@ -15,14 +15,11 @@ import type {
 
 export const commands = {
   listInterfaces: () => invoke<string[]>("list_interfaces"),
-  listInterfaceNames: () => invoke<string[]>("list_interface_names"),
 
   startCapture: (config: CaptureConfig) =>
     invoke<string>("start_capture", { config }),
   stopCapture: () => invoke<string>("stop_capture"),
-  isCaptureRunning: () => invoke<boolean>("is_capture_running"),
   pollPackets: () => invoke<CapturedPacket[]>("poll_packets"),
-  getAllPackets: () => invoke<CapturedPacket[]>("get_all_packets"),
   getPacketById: (id: string) =>
     invoke<CapturedPacket | null>("get_packet_by_id", { id }),
   clearPackets: () => invoke<string>("clear_packets"),

@@ -1,17 +1,14 @@
 import { useState } from "react";
 import type { CapturedPacket } from "../types";
 import { HexViewer } from "./HexViewer";
-import { commands } from "../commands";
 
 interface PacketDetailProps {
   packet: CapturedPacket | null;
-  onSaved: () => void;
-  setStatusMessage: (msg: string) => void;
 }
 
 type DetailTab = "headers" | "payload" | "raw";
 
-export function PacketDetail({ packet, onSaved, setStatusMessage }: PacketDetailProps) {
+export function PacketDetail({ packet }: PacketDetailProps) {
   const [tab, setTab] = useState<DetailTab>("headers");
   const [editablePayload, setEditablePayload] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
@@ -63,13 +60,11 @@ export function PacketDetail({ packet, onSaved, setStatusMessage }: PacketDetail
             setEditablePayload={setEditablePayload}
             isEditing={isEditing}
             setIsEditing={setIsEditing}
-            setStatusMessage={setStatusMessage}
           />
         )}
         {tab === "raw" && (
           <HexViewer
             bytes={packet.raw_bytes}
-            editable={false}
           />
         )}
       </div>
@@ -201,14 +196,12 @@ function PayloadView({
   setEditablePayload,
   isEditing,
   setIsEditing,
-  setStatusMessage,
 }: {
   packet: CapturedPacket;
   editablePayload: string;
   setEditablePayload: (v: string) => void;
   isEditing: boolean;
   setIsEditing: (v: boolean) => void;
-  setStatusMessage: (msg: string) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -242,7 +235,7 @@ function PayloadView({
       {packet.payload.length > 0 && (
         <div className="panel p-3">
           <h4 className="text-xs font-semibold text-gray-400 mb-2">Hex</h4>
-          <HexViewer bytes={packet.payload} editable={false} />
+          <HexViewer bytes={packet.payload} />
         </div>
       )}
     </div>

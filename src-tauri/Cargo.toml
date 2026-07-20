@@ -24,10 +24,8 @@ pnet = { version = "0.35", features = ["pcap"] }
 socket2 = { version = "0.5", features = ["all"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
-base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 rand = "0.8"
-crossbeam-channel = "0.5"
 dirs-next = "2.0"
 
 [features]

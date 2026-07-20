@@ -2,13 +2,11 @@ import { useMemo } from "react";
 
 interface HexViewerProps {
   bytes: number[];
-  editable?: boolean;
-  onChange?: (bytes: number[]) => void;
 }
 
 const BYTES_PER_LINE = 16;
 
-export function HexViewer({ bytes, editable = false, onChange }: HexViewerProps) {
+export function HexViewer({ bytes }: HexViewerProps) {
   const lines = useMemo(() => {
     const result: Array<{
       offset: number;

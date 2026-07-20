@@ -26,17 +26,30 @@ export default function App() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready");
   const pollRef = useRef<number | null>(null);
+  const packetBufferRef = useRef<CapturedPacket[]>([]);
+
+  const flushBuffer = useCallback(() => {
+    if (packetBufferRef.current.length > 0) {
+      const batch = packetBufferRef.current;
+      packetBufferRef.current = [];
+      setPackets((prev) => {
+        const next = prev.concat(batch);
+        return next.length > 10000 ? next.slice(next.length - 10000) : next;
+      });
+    }
+  }, []);
 
   const pollPackets = useCallback(async () => {
     try {
       const newPackets = await commands.pollPackets();
       if (newPackets.length > 0) {
-        setPackets((prev) => [...prev, ...newPackets]);
+        packetBufferRef.current.push(...newPackets);
       }
+      flushBuffer();
     } catch (e) {
       console.error("Poll error:", e);
     }
-  }, []);
+  }, [flushBuffer]);
 
   useEffect(() => {
     if (isCapturing) {
@@ -54,7 +67,7 @@ export default function App() {
     loadSavedData();
   }, []);
 
-  const loadSavedData = async () => {
+  const loadSavedData = useCallback(async () => {
     try {
       const [sp, rh, seq] = await Promise.all([
         commands.getSavedPackets(),
@@ -102,7 +115,6 @@ export default function App() {
               onClearPackets={handleClearPackets}
               onSaved={loadSavedData}
               setStatusMessage={setStatusMessage}
-              setPackets={setPackets}
             />
           )}
           {view === "library" && (
@@ -112,6 +124,7 @@ export default function App() {
               onSelectPacket={(p) => {
                 setSelectedPacket(null);
                 setTimeout(() => {
+                  const ascii = p.payload.map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : ".")).join("");
                   setSelectedPacket({
                     id: p.id,
                     timestamp: p.timestamp,
@@ -120,12 +133,12 @@ export default function App() {
                     ethernet: null,
                     ipv4: null,
                     ipv6: null,
-                    tcp: null,
-                    udp: null,
+                    tcp: p.protocol === "TCP" ? { src_port: parseInt(p.src_endpoint.split(":").pop() || "0"), dst_port: parseInt(p.dst_endpoint.split(":").pop() || "0"), sequence: 0, ack_number: 0, data_offset: 0, flags: { syn: false, ack: false, fin: false, rst: false, psh: false, urg: false }, window: 0, checksum: 0, urgent_pointer: 0 } : null,
+                    udp: p.protocol === "UDP" ? { src_port: parseInt(p.src_endpoint.split(":").pop() || "0"), dst_port: parseInt(p.dst_endpoint.split(":").pop() || "0"), length: 0, checksum: 0 } : null,
                     raw_bytes: p.raw_bytes,
                     payload: p.payload,
                     payload_hex: p.payload_hex,
-                    payload_ascii: p.payload.map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : ".")).join(""),
+                    payload_ascii: ascii,
                     capture_index: 0,
                   });
                 }, 0);

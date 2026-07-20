@@ -170,7 +170,14 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
             disabled={running}
             className="btn btn-primary text-xs w-full disabled:opacity-50"
           >
-            {running ? "Fuzzing..." : `⚡ Run ${iterations} Fuzz Iterations`}
+            {running ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="animate-pulse">●</span>
+                Fuzzing {iterations} iterations...
+              </span>
+            ) : (
+              `⚡ Run ${iterations} Fuzz Iterations`
+            )}
           </button>
         </div>
 
@@ -231,7 +238,7 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
               {selectedResult.replay_result.response && (
                 <div className="panel p-3">
                   <h4 className="text-xs font-semibold text-gray-400 mb-2">Response</h4>
-                  <HexViewer bytes={selectedResult.replay_result.response} editable={false} />
+                  <HexViewer bytes={selectedResult.replay_result.response} />
                 </div>
               )}
             </div>

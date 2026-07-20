@@ -11,6 +11,7 @@ const PCAP_MAGIC: u32 = 0xa1b2c3d4;
 const PCAP_VERSION_MAJOR: u16 = 2;
 const PCAP_VERSION_MINOR: u16 = 4;
 const PCAP_LINKTYPE_ETHERNET: u32 = 1;
+const MAX_HISTORY_LIMIT: usize = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedPacket {

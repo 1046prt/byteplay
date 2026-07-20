@@ -188,7 +188,7 @@ export function ReplayView({
                   <h4 className="text-xs font-semibold text-gray-400 mb-2">
                     Response ({result.response.length} bytes)
                   </h4>
-                  <HexViewer bytes={result.response} editable={false} />
+                  <HexViewer bytes={result.response} />
                   {result.response_hex && (
                     <div className="mt-2">
                       <h4 className="text-[10px] text-gray-500 mb-1">ASCII</h4>
