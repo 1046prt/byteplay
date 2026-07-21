@@ -16,8 +16,19 @@ import { LibraryView } from "./components/LibraryView";
 import { ReplayView } from "./components/ReplayView";
 import { SequenceView } from "./components/SequenceView";
 import { FuzzerView } from "./components/FuzzerView";
+import { ToastProvider } from "./components/Toast";
+import { ContextMenuRenderer } from "./components/ContextMenu";
 
 export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+      <ContextMenuRenderer />
+    </ToastProvider>
+  );
+}
+
+function AppInner() {
   const [view, setView] = useState<ViewMode>("capture");
   const [packets, setPackets] = useState<CapturedPacket[]>([]);
   const [selectedPacket, setSelectedPacket] = useState<CapturedPacket | null>(null);
@@ -35,6 +46,15 @@ export default function App() {
   const pollRef = useRef<number | null>(null);
   const packetBufferRef = useRef<CapturedPacket[]>([]);
   const statsRef = useRef({ totalPackets: 0, totalBytes: 0, startTime: 0, lastSamplePackets: 0, lastSampleBytes: 0, lastSampleTime: 0 });
+
+  useEffect(() => {
+    const base = "byteplay";
+    if (isCapturing) {
+      document.title = `● Capturing — ${base}`;
+    } else {
+      document.title = base;
+    }
+  }, [isCapturing]);
 
   const flushBuffer = useCallback(() => {
     if (packetBufferRef.current.length > 0) {
@@ -153,11 +173,7 @@ export default function App() {
         } else if ((e.ctrlKey || e.metaKey) && e.key === "s") {
           e.preventDefault();
           if (selectedPacket) {
-            setSelectedPacket((p) => {
-              const event = new CustomEvent("packetforge:save-packet");
-              window.dispatchEvent(event);
-              return p;
-            });
+            window.dispatchEvent(new CustomEvent("packetforge:save-packet"));
           }
         }
       } else if (e.key === "Escape") {

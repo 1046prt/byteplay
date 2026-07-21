@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { commands } from "../commands";
 import { DEFAULT_PORT, DEFAULT_TIMEOUT_MS } from "../constants";
+import { useToast } from "./Toast";
 import type { SavedPacket, SequenceStep, SavedSequence, ReplayResult } from "../types";
 
 interface SequenceViewProps {
@@ -14,7 +15,6 @@ export function SequenceView({
   sequences,
   savedPackets,
   onRefresh,
-  setStatusMessage,
 }: SequenceViewProps) {
   const [steps, setSteps] = useState<SequenceStep[]>([]);
   const [sequenceName, setSequenceName] = useState("");
@@ -22,6 +22,7 @@ export function SequenceView({
   const [results, setResults] = useState<ReplayResult[] | null>(null);
   const [executing, setExecuting] = useState(false);
   const [allowExternal, setAllowExternal] = useState(false);
+  const { toast } = useToast();
 
   const addStepFromPacket = (packet: SavedPacket) => {
     const newStep: SequenceStep = {
@@ -34,6 +35,14 @@ export function SequenceView({
       timeout_ms: DEFAULT_TIMEOUT_MS,
     };
     setSteps([...steps, newStep]);
+    toast(`Added step: ${packet.name}`, "success");
+  };
+
+  const loadSequence = (seq: SavedSequence) => {
+    setSteps(seq.steps);
+    setSequenceName(seq.name);
+    setSequenceDesc(seq.description);
+    toast(`Loaded: ${seq.name} (${seq.steps.length} steps)`, "info");
   };
 
   const extractPort = (endpoint: string): number => {
@@ -68,10 +77,10 @@ export function SequenceView({
       const res = await commands.executeReplaySequence(steps, allowExternal);
       setResults(res);
       const successCount = res.filter((r) => r.success).length;
-      setStatusMessage(`Sequence complete: ${successCount}/${res.length} succeeded`);
+      toast(`Sequence: ${successCount}/${res.length} succeeded`, successCount === res.length ? "success" : "error");
       onRefresh();
     } catch (e) {
-      setStatusMessage(`Sequence failed: ${e}`);
+      toast(`Sequence failed: ${e}`, "error");
     }
     setExecuting(false);
   };
@@ -80,23 +89,23 @@ export function SequenceView({
     if (!sequenceName.trim() || steps.length === 0) return;
     try {
       await commands.saveSequence(sequenceName, sequenceDesc, steps, []);
-      setStatusMessage(`Sequence "${sequenceName}" saved`);
+      toast(`Sequence "${sequenceName}" saved`, "success");
       setSequenceName("");
       setSequenceDesc("");
       setSteps([]);
       onRefresh();
     } catch (e) {
-      setStatusMessage(`Failed to save sequence: ${e}`);
+      toast(`Failed to save: ${e}`, "error");
     }
   };
 
-  const deleteSequence = async (id: string) => {
+  const deleteSequence = async (id: string, name: string) => {
     try {
       await commands.deleteSequence(id);
-      setStatusMessage("Sequence deleted");
+      toast(`Sequence "${name}" deleted`, "info");
       onRefresh();
     } catch (e) {
-      setStatusMessage(`Failed to delete: ${e}`);
+      toast(`Failed to delete: ${e}`, "error");
     }
   };
 
@@ -106,6 +115,7 @@ export function SequenceView({
         <div className="p-3 bg-[#0d1117] border-b border-[#1e293b] space-y-3">
           <div className="flex items-center gap-3">
             <h3 className="text-sm font-semibold text-white">Sequence Builder</h3>
+            <span className="text-[10px] text-gray-600">{steps.length} steps</span>
             <div className="flex-1" />
             <label className="flex items-center gap-2 text-xs text-gray-400">
               <input
@@ -116,11 +126,17 @@ export function SequenceView({
               Allow external
             </label>
             <button
+              onClick={() => { setSteps([]); setSequenceName(""); setSequenceDesc(""); setResults(null); }}
+              className="btn btn-secondary text-xs"
+            >
+              Clear
+            </button>
+            <button
               onClick={executeSequence}
               disabled={executing || steps.length === 0}
               className="btn btn-success text-xs disabled:opacity-50"
             >
-              {executing ? "Running..." : "▶ Run Sequence"}
+              {executing ? "Running..." : "▶ Run"}
             </button>
           </div>
           <div className="flex gap-2">
@@ -153,7 +169,7 @@ export function SequenceView({
             <div className="text-center text-gray-600 text-sm mt-8">
               <p>No steps yet.</p>
               <p className="text-xs mt-2 text-gray-700">
-                Add packets from the Library panel on the right to build a sequence.
+                Add packets from the panel on the right, or load a saved sequence.
               </p>
             </div>
           ) : (
@@ -168,13 +184,15 @@ export function SequenceView({
                     <div className="flex-1" />
                     <button
                       onClick={() => moveStep(i, -1)}
-                      className="text-gray-600 hover:text-gray-300 text-xs px-1"
+                      disabled={i === 0}
+                      className="text-gray-600 hover:text-gray-300 text-xs px-1 disabled:opacity-30"
                     >
                       ↑
                     </button>
                     <button
                       onClick={() => moveStep(i, 1)}
-                      className="text-gray-600 hover:text-gray-300 text-xs px-1"
+                      disabled={i === steps.length - 1}
+                      className="text-gray-600 hover:text-gray-300 text-xs px-1 disabled:opacity-30"
                     >
                       ↓
                     </button>
@@ -198,7 +216,9 @@ export function SequenceView({
                     <div>
                       <label className="text-gray-600 block mb-0.5">Port</label>
                       <input
-                        type="text"
+                        type="number"
+                        min="1"
+                        max="65535"
                         value={String(step.target_port)}
                         onChange={(e) => updateStep(i, "target_port", parseInt(e.target.value) || 0)}
                         className="input input-mono text-[10px] w-full"
@@ -218,7 +238,8 @@ export function SequenceView({
                     <div>
                       <label className="text-gray-600 block mb-0.5">Delay (ms)</label>
                       <input
-                        type="text"
+                        type="number"
+                        min="0"
                         value={String(step.delay_ms)}
                         onChange={(e) => updateStep(i, "delay_ms", parseInt(e.target.value) || 0)}
                         className="input input-mono text-[10px] w-full"
@@ -302,14 +323,15 @@ export function SequenceView({
               {sequences.map((s) => (
                 <div
                   key={s.id}
-                  className="p-2 border-t border-[#111827] text-[10px] hover:bg-[#111827]"
+                  onClick={() => loadSequence(s)}
+                  className="p-2 border-t border-[#111827] text-[10px] hover:bg-[#1a2236] cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-white">{s.name}</span>
                     <span className="text-gray-600">{s.steps.length} steps</span>
                     <div className="flex-1" />
                     <button
-                      onClick={() => deleteSequence(s.id)}
+                      onClick={(e) => { e.stopPropagation(); deleteSequence(s.id, s.name); }}
                       className="text-red-500 hover:text-red-400"
                     >
                       ×

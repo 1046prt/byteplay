@@ -6,6 +6,7 @@ import {
   DEFAULT_FUZZ_ITERATIONS,
   DEFAULT_FUZZ_MUTATION_RATE,
 } from "../constants";
+import { useToast } from "./Toast";
 import type { CapturedPacket, FuzzConfig, FuzzResult } from "../types";
 import { HexViewer } from "./HexViewer";
 
@@ -14,7 +15,7 @@ interface FuzzerViewProps {
   setStatusMessage: (msg: string) => void;
 }
 
-export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps) {
+export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
   const [targetHost, setTargetHost] = useState("127.0.0.1");
   const [targetPort, setTargetPort] = useState(String(DEFAULT_PORT));
   const [protocol, setProtocol] = useState("TCP");
@@ -31,6 +32,7 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
   const [selectedResult, setSelectedResult] = useState<FuzzResult | null>(null);
   const [filterMode, setFilterMode] = useState<"all" | "errors" | "responses">("all");
   const streamRef = useRef<FuzzResult[]>([]);
+  const { toast } = useToast();
 
   const iterCount = parseInt(iterations, 10) || DEFAULT_FUZZ_ITERATIONS;
   const progress = results ? 100 : running ? Math.min((streamRef.current.length / iterCount) * 100, 99) : 0;
@@ -48,7 +50,7 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
         : selectedPacket?.raw_bytes || [];
 
       if (basePayload.length === 0) {
-        setStatusMessage("No payload to fuzz");
+        toast("No payload to fuzz", "error");
         setRunning(false);
         return;
       }
@@ -69,11 +71,12 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
 
       const crashes = res.filter((r) => !r.replay_result.success).length;
       const responses = res.filter((r) => r.replay_result.success && r.replay_result.response).length;
-      setStatusMessage(
-        `Fuzz complete: ${crashes} errors, ${responses} responses out of ${res.length} iterations`
+      toast(
+        `Fuzz: ${crashes} errors, ${responses} responses out of ${res.length}`,
+        crashes === 0 ? "success" : "info"
       );
     } catch (e) {
-      setStatusMessage(`Fuzz error: ${e}`);
+      toast(`Fuzz error: ${e}`, "error");
     }
     setRunning(false);
   };
@@ -103,7 +106,9 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
             <div>
               <label className="text-[10px] text-gray-500 block mb-1">Target Port</label>
               <input
-                type="text"
+                type="number"
+                min="1"
+                max="65535"
                 value={targetPort}
                 onChange={(e) => setTargetPort(e.target.value)}
                 className="input input-mono text-xs w-full"
@@ -123,7 +128,9 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
             <div>
               <label className="text-[10px] text-gray-500 block mb-1">Timeout (ms)</label>
               <input
-                type="text"
+                type="number"
+                min="100"
+                max="30000"
                 value={timeout}
                 onChange={(e) => setTimeout_(e.target.value)}
                 className="input input-mono text-xs w-full"
