@@ -63,10 +63,6 @@ export default function App() {
     };
   }, [isCapturing, pollPackets]);
 
-  useEffect(() => {
-    loadSavedData();
-  }, []);
-
   const loadSavedData = useCallback(async () => {
     try {
       const [sp, rh, seq] = await Promise.all([
@@ -80,7 +76,11 @@ export default function App() {
     } catch (e) {
       console.error("Failed to load saved data:", e);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadSavedData();
+  }, []);
 
   const handleClearPackets = async () => {
     await commands.clearPackets();

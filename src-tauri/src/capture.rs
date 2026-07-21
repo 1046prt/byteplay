@@ -1,5 +1,5 @@
 use log::{error, info, warn};
-use pnet::datalink::{self, Config};
+use pnet::datalink::{self, Channel, Config};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -31,8 +31,6 @@ pub struct CapturedPacket {
     pub capture_index: usize,
 }
 
-const MAX_STORED_PACKETS: usize = 10000;
-
 pub struct CaptureEngine {
     running: Arc<AtomicBool>,
     packets: Arc<Mutex<Vec<CapturedPacket>>>,
@@ -51,13 +49,9 @@ impl CaptureEngine {
             .iter()
             .map(|iface| {
                 let addrs: Vec<String> = iface
-                    .addresses
+                    .ips
                     .iter()
-                    .filter_map(|addr| match addr {
-                        datalink::NetworkInterfaceIndex::Ipv4(ip) => Some(ip.to_string()),
-                        datalink::NetworkInterfaceIndex::Ipv6(ip) => Some(ip.to_string()),
-                        _ => None,
-                    })
+                    .map(|ip_network| ip_network.ip().to_string())
                     .collect();
                 if addrs.is_empty() {
                     iface.name.clone()
@@ -65,6 +59,13 @@ impl CaptureEngine {
                     format!("{} [{}]", iface.name, addrs.join(", "))
                 }
             })
+            .collect()
+    }
+
+    pub fn list_interface_names() -> Vec<String> {
+        datalink::interfaces()
+            .iter()
+            .map(|iface| iface.name.clone())
             .collect()
     }
 
@@ -84,10 +85,14 @@ impl CaptureEngine {
             .ok_or_else(|| format!("Interface '{}' not found", config.interface_name))?;
 
         let mut link_config = Config::default();
-        link_config.read_timeout = std::time::Duration::from_millis(100);
+        link_config.read_timeout = Some(std::time::Duration::from_millis(100));
 
-        let (_, mut rx) = datalink::channel(&interface, link_config)
-            .map_err(|e| format!("Failed to open channel on {}: {}", config.interface_name, e))?;
+        let mut rx = match datalink::channel(&interface, link_config)
+            .map_err(|e| format!("Failed to open channel on {}: {}", config.interface_name, e))?
+        {
+            Channel::Ethernet(_, rx) => rx,
+            _ => return Err("Unsupported channel type".to_string()),
+        };
 
         self.running.store(true, Ordering::SeqCst);
         let running = self.running.clone();
@@ -161,33 +166,23 @@ impl CaptureEngine {
     }
 
     pub fn store_packet(&self, packet: CapturedPacket) {
-        if let Ok(mut packets) = self.packets.lock() {
-            if packets.len() >= MAX_STORED_PACKETS {
-                packets.remove(0);
-            }
-            packets.push(packet);
-        }
+        self.packets.lock().unwrap().push(packet);
     }
 
     pub fn get_packets(&self) -> Vec<CapturedPacket> {
-        self.packets
-            .lock()
-            .map(|packets| packets.clone())
-            .unwrap_or_default()
+        self.packets.lock().unwrap().clone()
     }
 
     pub fn get_packet_by_id(&self, id: &str) -> Option<CapturedPacket> {
         self.packets
             .lock()
-            .ok()
-            .and_then(|packets| {
-                packets.iter().find(|p| p.id == id).cloned()
-            })
+            .unwrap()
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
     }
 
     pub fn clear_packets(&self) {
-        if let Ok(mut packets) = self.packets.lock() {
-            packets.clear();
-        }
+        self.packets.lock().unwrap().clear();
     }
 }

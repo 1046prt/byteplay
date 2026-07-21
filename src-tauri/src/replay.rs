@@ -135,7 +135,7 @@ fn send_tcp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, Strin
         .connect(&addr.into())
         .map_err(|e| format!("TCP connect failed: {}", e))?;
 
-    let std_socket: std::net::TcpStream = socket.into();
+    let mut std_socket: std::net::TcpStream = socket.into();
     std_socket
         .write_all(data)
         .map_err(|e| format!("TCP write failed: {}", e))?;
