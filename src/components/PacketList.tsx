@@ -7,6 +7,7 @@ interface PacketListProps {
   packets: CapturedPacket[];
   selectedPacket: CapturedPacket | null;
   onSelectPacket: (p: CapturedPacket) => void;
+  onContextMenu?: (e: React.MouseEvent, p: CapturedPacket) => void;
 }
 
 type SortKey = "index" | "time" | "protocol" | "src" | "dst" | "length";
@@ -95,7 +96,7 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return <span className="text-blue-400 ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
-export function PacketList({ packets, selectedPacket, onSelectPacket }: PacketListProps) {
+export function PacketList({ packets, selectedPacket, onSelectPacket, onContextMenu }: PacketListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [sortKey, setSortKey] = useState<SortKey>("index");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -201,6 +202,7 @@ export function PacketList({ packets, selectedPacket, onSelectPacket }: PacketLi
                 data-index={virtualRow.index}
                 ref={virtualizer.measureElement}
                 onClick={() => onSelectPacket(p)}
+                onContextMenu={(e) => onContextMenu?.(e, p)}
                 className={`absolute w-full flex items-center px-3 py-1 text-xs font-mono cursor-pointer border-b border-[#111827] transition-colors ${
                   isSelected
                     ? "bg-blue-600/20 border-l-2 border-l-blue-500"

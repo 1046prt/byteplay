@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { commands } from "../commands";
 import { DEFAULT_PORT, DEFAULT_TIMEOUT_MS } from "../constants";
+import { useToast } from "./Toast";
 import type { CapturedPacket, ReplayConfig, ReplayResult, ReplayRecord } from "../types";
 import { HexViewer } from "./HexViewer";
 
@@ -15,7 +16,6 @@ export function ReplayView({
   selectedPacket,
   replayHistory,
   onRefreshHistory,
-  setStatusMessage,
 }: ReplayViewProps) {
   const [targetHost, setTargetHost] = useState("127.0.0.1");
   const [targetPort, setTargetPort] = useState(String(DEFAULT_PORT));
@@ -26,6 +26,7 @@ export function ReplayView({
   const [useCustom, setUseCustom] = useState(false);
   const [result, setResult] = useState<ReplayResult | null>(null);
   const [sending, setSending] = useState(false);
+  const { toast } = useToast();
 
   const handleReplay = async () => {
     setSending(true);
@@ -36,16 +37,23 @@ export function ReplayView({
         : selectedPacket?.raw_bytes || [];
 
       if (data.length === 0) {
-        setStatusMessage("No data to send");
+        toast("No data to send", "error");
+        setSending(false);
+        return;
+      }
+
+      const port = parseInt(targetPort, 10);
+      if (isNaN(port) || port < 1 || port > 65535) {
+        toast("Invalid port number", "error");
         setSending(false);
         return;
       }
 
       const config: ReplayConfig = {
         target_host: targetHost,
-        target_port: parseInt(targetPort, 10),
-        protocol: protocol,
-        timeout_ms: parseInt(timeout, 10),
+        target_port: port,
+        protocol,
+        timeout_ms: parseInt(timeout, 10) || DEFAULT_TIMEOUT_MS,
         allow_external: allowExternal,
       };
 
@@ -53,16 +61,23 @@ export function ReplayView({
       setResult(res);
 
       if (res.success) {
-        setStatusMessage(`Replay OK: ${res.bytes_sent} bytes sent in ${res.duration_ms}ms`);
+        toast(`Replay OK: ${res.bytes_sent} bytes in ${res.duration_ms}ms`, "success");
       } else {
-        setStatusMessage(`Replay failed: ${res.error}`);
+        toast(`Replay failed: ${res.error}`, "error");
       }
 
       onRefreshHistory();
     } catch (e) {
-      setStatusMessage(`Replay error: ${e}`);
+      toast(`Replay error: ${e}`, "error");
     }
     setSending(false);
+  };
+
+  const loadHistoryItem = (r: ReplayRecord) => {
+    setTargetHost(r.target_host);
+    setTargetPort(String(r.target_port));
+    setProtocol(r.protocol || "TCP");
+    toast(`Loaded: ${r.target_host}:${r.target_port}`, "info");
   };
 
   return (
@@ -90,7 +105,9 @@ export function ReplayView({
             <div>
               <label className="text-[10px] text-gray-500 block mb-1">Port</label>
               <input
-                type="text"
+                type="number"
+                min="1"
+                max="65535"
                 value={targetPort}
                 onChange={(e) => setTargetPort(e.target.value)}
                 className="input input-mono text-xs w-full"
@@ -110,7 +127,9 @@ export function ReplayView({
             <div>
               <label className="text-[10px] text-gray-500 block mb-1">Timeout (ms)</label>
               <input
-                type="text"
+                type="number"
+                min="100"
+                max="30000"
                 value={timeout}
                 onChange={(e) => setTimeout_(e.target.value)}
                 className="input input-mono text-xs w-full"
@@ -220,7 +239,8 @@ export function ReplayView({
               {replayHistory.map((r) => (
                 <div
                   key={r.id}
-                  className="p-2 rounded bg-[#111827] text-[10px] space-y-0.5"
+                  onClick={() => loadHistoryItem(r)}
+                  className="p-2 rounded bg-[#111827] text-[10px] space-y-0.5 cursor-pointer hover:bg-[#1a2236] transition-colors"
                 >
                   <div className="flex items-center gap-2">
                     <span
@@ -231,6 +251,9 @@ export function ReplayView({
                     <span className="text-gray-300 font-mono">
                       {r.target_host}:{r.target_port}
                     </span>
+                    {r.protocol && (
+                      <span className="text-gray-600">{r.protocol}</span>
+                    )}
                   </div>
                   <div className="text-gray-600">
                     {r.bytes_sent} bytes • {r.duration_ms}ms

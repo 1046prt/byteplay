@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { commands } from "../commands";
+import { useToast } from "./Toast";
+import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 import type { CapturedPacket, CaptureConfig } from "../types";
 import { PacketList } from "./PacketList";
 import { PacketDetail } from "./PacketDetail";
@@ -34,6 +36,8 @@ export function CaptureView({
   const [debouncedFilter, setDebouncedFilter] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const debounceRef = useRef<number | null>(null);
+  const { toast } = useToast();
+  const { showContextMenu } = useContextMenu();
 
   useEffect(() => {
     loadInterfaces();
@@ -67,7 +71,7 @@ export function CaptureView({
 
   const handleStartCapture = async () => {
     if (!selectedInterface) {
-      setStatusMessage("No interface selected");
+      toast("No interface selected", "error");
       return;
     }
     try {
@@ -78,9 +82,9 @@ export function CaptureView({
       };
       await commands.startCapture(config);
       setIsCapturing(true);
-      setStatusMessage(`Capturing on ${config.interface_name}`);
+      toast(`Capturing on ${config.interface_name}`, "success");
     } catch (e) {
-      setStatusMessage(`Failed to start capture: ${e}`);
+      toast(`Failed to start capture: ${e}`, "error");
     }
   };
 
@@ -88,9 +92,9 @@ export function CaptureView({
     try {
       await commands.stopCapture();
       setIsCapturing(false);
-      setStatusMessage(`Capture stopped. ${packets.length} packets captured.`);
+      toast(`Capture stopped — ${packets.length} packets`, "info");
     } catch (e) {
-      setStatusMessage(`Failed to stop capture: ${e}`);
+      toast(`Failed to stop capture: ${e}`, "error");
     }
   };
 
@@ -98,11 +102,11 @@ export function CaptureView({
     if (!selectedPacket) return;
     try {
       await commands.savePacket(selectedPacket.id, name, description, tags);
-      setStatusMessage(`Packet saved as "${name}"`);
+      toast(`Packet saved as "${name}"`, "success");
       setShowSaveDialog(false);
       onSaved();
     } catch (e) {
-      setStatusMessage(`Failed to save packet: ${e}`);
+      toast(`Failed to save packet: ${e}`, "error");
     }
   };
 
@@ -110,10 +114,63 @@ export function CaptureView({
     if (confirmClear) {
       onClearPackets();
       setConfirmClear(false);
+      toast("Packets cleared", "info");
     } else {
       setConfirmClear(true);
       setTimeout(() => setConfirmClear(false), 3000);
     }
+  };
+
+  const handlePacketContextMenu = (e: React.MouseEvent, p: CapturedPacket) => {
+    const items: ContextMenuItem[] = [
+      {
+        label: "Save packet",
+        icon: "💾",
+        onClick: () => {
+          onSelectPacket(p);
+          setShowSaveDialog(true);
+        },
+      },
+      {
+        label: "Replay packet",
+        icon: "▶",
+        onClick: () => {
+          onSelectPacket(p);
+          setStatusMessage("Switch to Replay view to configure");
+        },
+      },
+      {
+        label: "Copy source IP",
+        icon: "📋",
+        onClick: () => {
+          const ip = p.ipv4?.src_ip || p.ipv6?.src_ip || "";
+          navigator.clipboard.writeText(ip);
+          toast(`Copied: ${ip}`, "success");
+        },
+      },
+      {
+        label: "Copy dest IP",
+        icon: "📋",
+        onClick: () => {
+          const ip = p.ipv4?.dst_ip || p.ipv6?.dst_ip || "";
+          navigator.clipboard.writeText(ip);
+          toast(`Copied: ${ip}`, "success");
+        },
+      },
+      {
+        label: "Copy payload hex",
+        icon: "📋",
+        onClick: () => {
+          navigator.clipboard.writeText(p.payload_hex);
+          toast("Payload hex copied", "success");
+        },
+      },
+      { label: "Copy full hex", icon: "📋", onClick: () => {
+          navigator.clipboard.writeText(p.raw_bytes.map((b) => b.toString(16).padStart(2, "0")).join(" "));
+        toast("Full hex copied", "success");
+      }},
+    ];
+    showContextMenu(e, items);
   };
 
   const filteredPackets = useMemo(() => packets.filter((p) => {
@@ -165,13 +222,28 @@ export function CaptureView({
             </button>
           )}
           <div className="h-5 w-px bg-[#1e293b] mx-1" />
-          <input
-            type="text"
-            placeholder="Filter packets..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="input text-xs flex-1 max-w-[200px]"
-          />
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              placeholder="Filter..."
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              className="input text-xs w-[180px] pr-6"
+            />
+            {filterText && (
+              <button
+                onClick={() => setFilterText("")}
+                className="absolute right-1.5 text-gray-600 hover:text-gray-300 text-[10px]"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {debouncedFilter && (
+            <span className="text-[10px] text-gray-500 font-mono shrink-0">
+              {filteredPackets.length}/{packets.length}
+            </span>
+          )}
           <button onClick={handleClear} className={`btn text-xs ${confirmClear ? "btn-danger" : "btn-secondary"}`}>
             {confirmClear ? "Confirm?" : "Clear"}
           </button>
@@ -196,6 +268,7 @@ export function CaptureView({
           packets={filteredPackets}
           selectedPacket={selectedPacket}
           onSelectPacket={onSelectPacket}
+          onContextMenu={handlePacketContextMenu}
         />
       </div>
       <div className="w-[480px] min-w-[380px] shrink-0">
@@ -204,8 +277,9 @@ export function CaptureView({
         />
       </div>
 
-      {showSaveDialog && (
+      {showSaveDialog && selectedPacket && (
         <SaveDialog
+          packet={selectedPacket}
           onSave={handleSavePacket}
           onClose={() => setShowSaveDialog(false)}
         />
@@ -215,7 +289,6 @@ export function CaptureView({
         <ExportDialog
           packets={packets}
           onClose={() => setShowExportDialog(false)}
-          setStatusMessage={setStatusMessage}
         />
       )}
     </div>
@@ -223,13 +296,20 @@ export function CaptureView({
 }
 
 function SaveDialog({
+  packet,
   onSave,
   onClose,
 }: {
+  packet: CapturedPacket;
   onSave: (name: string, description: string, tags: string[]) => void;
   onClose: () => void;
 }) {
-  const [name, setName] = useState("");
+  const proto = packet.tcp ? "TCP" : packet.udp ? "UDP" : "IP";
+  const dstIp = packet.ipv4?.dst_ip || packet.ipv6?.dst_ip || "?";
+  const dstPort = packet.tcp?.dst_port ?? packet.udp?.dst_port ?? "";
+  const defaultName = `${proto} → ${dstIp}${dstPort ? `:${dstPort}` : ""}`;
+
+  const [name, setName] = useState(defaultName);
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
 
@@ -287,15 +367,14 @@ function SaveDialog({
 function ExportDialog({
   packets,
   onClose,
-  setStatusMessage,
 }: {
   packets: CapturedPacket[];
   onClose: () => void;
-  setStatusMessage: (msg: string) => void;
 }) {
   const [format, setFormat] = useState<"pcap" | "json">("pcap");
   const [filename, setFilename] = useState("capture");
   const [exporting, setExporting] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -318,10 +397,10 @@ function ExportDialog({
       } else {
         result = await commands.exportJson(ids, path);
       }
-      setStatusMessage(result);
+      toast(result, "success");
       onClose();
     } catch (e) {
-      setStatusMessage(`Export failed: ${e}`);
+      toast(`Export failed: ${e}`, "error");
     }
     setExporting(false);
   };

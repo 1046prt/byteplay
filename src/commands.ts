@@ -29,6 +29,8 @@ export const commands = {
   getSavedPackets: () => invoke<SavedPacket[]>("get_saved_packets"),
   deleteSavedPacket: (id: string) =>
     invoke<string>("delete_saved_packet", { id }),
+  updateSavedPacket: (id: string, name: string, description: string, tags: string[]) =>
+    invoke<string>("update_saved_packet", { id, name, description, tags }),
 
   replayPacket: (data: number[], config: ReplayConfig) =>
     invoke<ReplayResult>("replay_packet", { data, config }),

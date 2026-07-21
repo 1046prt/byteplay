@@ -185,6 +185,19 @@ fn delete_saved_packet(
 }
 
 #[tauri::command]
+fn update_saved_packet(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    description: String,
+    tags: Vec<String>,
+) -> Result<String, String> {
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    storage.update_saved_packet(&id, &name, &description, &tags)?;
+    Ok("Packet updated".to_string())
+}
+
+#[tauri::command]
 async fn replay_packet(
     state: State<'_, AppState>,
     data: Vec<u8>,
@@ -431,6 +444,7 @@ pub fn run() {
             save_packet,
             get_saved_packets,
             delete_saved_packet,
+            update_saved_packet,
             replay_packet,
             get_replay_history,
             execute_replay_sequence,

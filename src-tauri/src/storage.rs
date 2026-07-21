@@ -185,6 +185,16 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_saved_packet(&self, id: &str, name: &str, description: &str, tags: &[String]) -> Result<(), String> {
+        let db = self.db.lock().map_err(|e| e.to_string())?;
+        let tags_json = serde_json::to_string(tags).unwrap_or_default();
+        db.execute(
+            "UPDATE saved_packets SET name = ?1, description = ?2, tags = ?3 WHERE id = ?4",
+            params![name, description, tags_json, id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn record_replay(&self, record: &ReplayRecord) -> Result<(), String> {
         let db = self.db.lock().map_err(|e| e.to_string())?;
         db.execute(
