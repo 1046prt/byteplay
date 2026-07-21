@@ -11,7 +11,6 @@ const PCAP_MAGIC: u32 = 0xa1b2c3d4;
 const PCAP_VERSION_MAJOR: u16 = 2;
 const PCAP_VERSION_MINOR: u16 = 4;
 const PCAP_LINKTYPE_ETHERNET: u32 = 1;
-const MAX_HISTORY_LIMIT: usize = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedPacket {
@@ -57,7 +56,6 @@ pub struct SavedSequence {
 
 pub struct Storage {
     db: Mutex<Connection>,
-    data_dir: PathBuf,
 }
 
 impl Storage {
@@ -116,7 +114,6 @@ impl Storage {
 
         Ok(Self {
             db: Mutex::new(conn),
-            data_dir,
         })
     }
 
@@ -214,7 +211,7 @@ impl Storage {
         let db = self.db.lock().map_err(|e| e.to_string())?;
         let mut stmt = db
             .prepare(
-                "SELECT id, packet_id, packet_name, timestamp, target_host, target_port, protocol, bytes_sent, success, response_bytes, error, duration_ms FROM replay_history ORDER BY timestamp DESC LIMIT {}", MAX_HISTORY_LIMIT,
+                "SELECT id, packet_id, packet_name, timestamp, target_host, target_port, protocol, bytes_sent, success, response_bytes, error, duration_ms FROM replay_history ORDER BY timestamp DESC LIMIT 500",
             )
             .map_err(|e| e.to_string())?;
 

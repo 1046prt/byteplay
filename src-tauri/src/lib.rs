@@ -190,18 +190,20 @@ async fn replay_packet(
     data: Vec<u8>,
     config: ReplayConfig,
 ) -> Result<replay::ReplayResult, String> {
-    let result = tauri::async_runtime::spawn_blocking(move || replay::replay_packet(&data, config.clone()))
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?;
+    let record_target_host = config.target_host.clone();
+    let record_target_port = config.target_port;
+    let record_protocol = config.protocol.clone();
+
+    let result = replay::replay_packet(&data, config);
 
     let record = ReplayRecord {
         id: uuid::Uuid::new_v4().to_string(),
         packet_id: None,
         packet_name: None,
         timestamp: result.timestamp.clone(),
-        target_host: config.target_host,
-        target_port: config.target_port,
-        protocol: config.protocol,
+        target_host: record_target_host,
+        target_port: record_target_port,
+        protocol: record_protocol,
         bytes_sent: result.bytes_sent,
         success: result.success,
         response_bytes: result.response.clone(),

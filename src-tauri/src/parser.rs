@@ -7,6 +7,7 @@ use pnet::packet::{
     udp::UdpPacket,
     Packet,
 };
+use pnet::packet::ip::IpNextHeaderProtocol;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,7 +242,7 @@ fn parse_tcp(tcp: &TcpPacket<'_>) -> TcpInfo {
         },
         window: tcp.get_window(),
         checksum: tcp.get_checksum(),
-        urgent_pointer: tcp.get_urgent_pointer(),
+        urgent_pointer: tcp.get_urgent_ptr(),
     }
 }
 
@@ -257,7 +258,7 @@ fn format_mac(mac: pnet::util::MacAddr) -> String {
     )
 }
 
-fn format_ip_protocol(proto: IpNextHeaderProtocols) -> String {
+fn format_ip_protocol(proto: IpNextHeaderProtocol) -> String {
     match proto {
         IpNextHeaderProtocols::Tcp => "TCP".to_string(),
         IpNextHeaderProtocols::Udp => "UDP".to_string(),

@@ -31,6 +31,16 @@ export function LibraryView({
     );
   });
 
+  const handleDelete = async (id: string, _name: string) => {
+    try {
+      await commands.deleteSavedPacket(id);
+      onRefresh();
+      setStatusMessage("Packet deleted");
+    } catch (e) {
+      setStatusMessage(`Delete failed: ${e}`);
+    }
+  };
+
   const handleDeleteClick = (id: string, name: string) => {
     if (pendingDelete?.id === id) {
       handleDelete(id, name);
