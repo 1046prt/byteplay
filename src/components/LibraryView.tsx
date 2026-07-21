@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { commands } from "../commands";
 import type { SavedPacket } from "../types";
 
@@ -18,8 +18,20 @@ export function LibraryView({
   const [searchText, setSearchText] = useState("");
   const [exporting, setExporting] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
-  const filtered = savedPackets.filter((p) => {
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    for (const p of savedPackets) {
+      for (const t of p.tags) {
+        tagSet.add(t);
+      }
+    }
+    return Array.from(tagSet).sort();
+  }, [savedPackets]);
+
+  const filtered = useMemo(() => savedPackets.filter((p) => {
+    if (activeTag && !p.tags.includes(activeTag)) return false;
     if (!searchText) return true;
     const lower = searchText.toLowerCase();
     return (
@@ -29,7 +41,7 @@ export function LibraryView({
       p.protocol.toLowerCase().includes(lower) ||
       p.tags.some((t) => t.toLowerCase().includes(lower))
     );
-  });
+  }), [savedPackets, searchText, activeTag]);
 
   const handleDelete = async (id: string, _name: string) => {
     try {
@@ -74,6 +86,15 @@ export function LibraryView({
           onChange={(e) => setSearchText(e.target.value)}
           className="input text-xs flex-1 max-w-[300px]"
         />
+        {activeTag && (
+          <button
+            onClick={() => setActiveTag(null)}
+            className="text-[10px] px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 flex items-center gap-1"
+          >
+            #{activeTag}
+            <span className="text-blue-400/60 hover:text-blue-400">✕</span>
+          </button>
+        )}
         <div className="flex-1" />
         <button
           onClick={handleExportAll}
@@ -83,6 +104,25 @@ export function LibraryView({
           Export JSON
         </button>
       </div>
+
+      {allTags.length > 0 && (
+        <div className="flex items-center gap-1 px-3 py-2 bg-[#0b0f19] border-b border-[#1e293b] flex-wrap">
+          <span className="text-[10px] text-gray-600 mr-1">Tags:</span>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() => setActiveTag(activeTag === tag ? null : tag)}
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                activeTag === tag
+                  ? "bg-blue-600/30 text-blue-400"
+                  : "bg-gray-800/60 text-gray-500 hover:text-gray-300 hover:bg-gray-700/60"
+              }`}
+            >
+              #{tag}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto p-3">
         {filtered.length === 0 ? (
@@ -119,12 +159,20 @@ export function LibraryView({
                   {p.tags.length > 0 && (
                     <div className="flex gap-1">
                       {p.tags.map((tag) => (
-                        <span
+                        <button
                           key={tag}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-500"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTag(activeTag === tag ? null : tag);
+                          }}
+                          className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                            activeTag === tag
+                              ? "bg-blue-600/30 text-blue-400"
+                              : "bg-gray-800 text-gray-500 hover:text-gray-300"
+                          }`}
                         >
                           {tag}
-                        </span>
+                        </button>
                       ))}
                     </div>
                   )}

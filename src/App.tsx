@@ -7,6 +7,7 @@ import type {
   ReplayRecord,
   SavedSequence,
   ViewMode,
+  CaptureStats,
 } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -25,8 +26,15 @@ export default function App() {
   const [sequences, setSequences] = useState<SavedSequence[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready");
+  const [captureStats, setCaptureStats] = useState<CaptureStats>({
+    packetsPerSecond: 0,
+    bytesPerSecond: 0,
+    totalBytes: 0,
+    duration: 0,
+  });
   const pollRef = useRef<number | null>(null);
   const packetBufferRef = useRef<CapturedPacket[]>([]);
+  const statsRef = useRef({ totalPackets: 0, totalBytes: 0, startTime: 0, lastSamplePackets: 0, lastSampleBytes: 0, lastSampleTime: 0 });
 
   const flushBuffer = useCallback(() => {
     if (packetBufferRef.current.length > 0) {
@@ -44,8 +52,34 @@ export default function App() {
       const newPackets = await commands.pollPackets();
       if (newPackets.length > 0) {
         packetBufferRef.current.push(...newPackets);
+
+        const s = statsRef.current;
+        for (const p of newPackets) {
+          s.totalPackets++;
+          s.totalBytes += p.frame_length;
+        }
       }
       flushBuffer();
+
+      const s = statsRef.current;
+      const now = performance.now();
+      if (s.lastSampleTime > 0 && now - s.lastSampleTime > 0) {
+        const elapsed = (now - s.lastSampleTime) / 1000;
+        const pps = (s.totalPackets - s.lastSamplePackets) / elapsed;
+        const bps = (s.totalBytes - s.lastSampleBytes) / elapsed;
+        const duration = s.startTime > 0 ? (now - s.startTime) / 1000 : 0;
+        setCaptureStats({
+          packetsPerSecond: Math.round(pps),
+          bytesPerSecond: Math.round(bps),
+          totalBytes: s.totalBytes,
+          duration,
+        });
+      }
+      if (s.lastSampleTime === 0 || now - s.lastSampleTime > 500) {
+        s.lastSamplePackets = s.totalPackets;
+        s.lastSampleBytes = s.totalBytes;
+        s.lastSampleTime = now;
+      }
     } catch (e) {
       console.error("Poll error:", e);
     }
@@ -53,6 +87,11 @@ export default function App() {
 
   useEffect(() => {
     if (isCapturing) {
+      const s = statsRef.current;
+      s.startTime = performance.now();
+      s.lastSampleTime = 0;
+      s.lastSamplePackets = s.totalPackets;
+      s.lastSampleBytes = s.totalBytes;
       pollRef.current = window.setInterval(pollPackets, POLL_INTERVAL_MS);
     } else if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -82,10 +121,67 @@ export default function App() {
     loadSavedData();
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+
+      if (view === "capture") {
+        if (e.key === "ArrowDown" || e.key === "j") {
+          e.preventDefault();
+          setPackets((prev) => {
+            setSelectedPacket((curr) => {
+              if (!curr && prev.length > 0) return prev[0];
+              if (!curr) return null;
+              const idx = prev.findIndex((p) => p.id === curr.id);
+              return idx < prev.length - 1 ? prev[idx + 1] : curr;
+            });
+            return prev;
+          });
+        } else if (e.key === "ArrowUp" || e.key === "k") {
+          e.preventDefault();
+          setPackets((prev) => {
+            setSelectedPacket((curr) => {
+              if (!curr && prev.length > 0) return prev[prev.length - 1];
+              if (!curr) return null;
+              const idx = prev.findIndex((p) => p.id === curr.id);
+              return idx > 0 ? prev[idx - 1] : curr;
+            });
+            return prev;
+          });
+        } else if (e.key === "Escape") {
+          setSelectedPacket(null);
+        } else if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+          e.preventDefault();
+          if (selectedPacket) {
+            setSelectedPacket((p) => {
+              const event = new CustomEvent("packetforge:save-packet");
+              window.dispatchEvent(event);
+              return p;
+            });
+          }
+        }
+      } else if (e.key === "Escape") {
+        setSelectedPacket(null);
+      }
+
+      if (e.key === "1") setView("capture");
+      else if (e.key === "2") setView("library");
+      else if (e.key === "3") setView("replay");
+      else if (e.key === "4") setView("sequences");
+      else if (e.key === "5") setView("fuzzer");
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [view, selectedPacket]);
+
   const handleClearPackets = async () => {
     await commands.clearPackets();
     setPackets([]);
     setSelectedPacket(null);
+    statsRef.current.totalPackets = 0;
+    statsRef.current.totalBytes = 0;
+    setCaptureStats({ packetsPerSecond: 0, bytesPerSecond: 0, totalBytes: 0, duration: 0 });
     setStatusMessage("Packets cleared");
   };
 
@@ -103,6 +199,7 @@ export default function App() {
           isCapturing={isCapturing}
           packetCount={packets.length}
           statusMessage={statusMessage}
+          stats={captureStats}
         />
         <main className="flex-1 overflow-hidden">
           {view === "capture" && (

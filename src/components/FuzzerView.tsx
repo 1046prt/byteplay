@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { commands } from "../commands";
 import {
   DEFAULT_PORT,
@@ -26,13 +26,22 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
   const [useCustom, setUseCustom] = useState(false);
 
   const [results, setResults] = useState<FuzzResult[] | null>(null);
+  const [streamResults, setStreamResults] = useState<FuzzResult[]>([]);
   const [running, setRunning] = useState(false);
   const [selectedResult, setSelectedResult] = useState<FuzzResult | null>(null);
+  const [filterMode, setFilterMode] = useState<"all" | "errors" | "responses">("all");
+  const streamRef = useRef<FuzzResult[]>([]);
+
+  const iterCount = parseInt(iterations, 10) || DEFAULT_FUZZ_ITERATIONS;
+  const progress = results ? 100 : running ? Math.min((streamRef.current.length / iterCount) * 100, 99) : 0;
 
   const handleFuzz = async () => {
     setRunning(true);
     setResults(null);
+    setStreamResults([]);
     setSelectedResult(null);
+    streamRef.current = [];
+
     try {
       const basePayload = useCustom
         ? Array.from(new TextEncoder().encode(customPayload))
@@ -49,7 +58,7 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
         target_port: parseInt(targetPort, 10),
         protocol,
         base_payload: basePayload,
-        iterations: parseInt(iterations, 10),
+        iterations: iterCount,
         mutation_rate: parseFloat(mutationRate),
         timeout_ms: parseInt(timeout, 10),
         allow_external: allowExternal,
@@ -68,6 +77,13 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
     }
     setRunning(false);
   };
+
+  const displayResults = results || streamResults;
+  const filteredResults = displayResults.filter((r) => {
+    if (filterMode === "errors") return !r.replay_result.success;
+    if (filterMode === "responses") return r.replay_result.success && !!r.replay_result.response;
+    return true;
+  });
 
   return (
     <div className="h-full flex">
@@ -173,12 +189,27 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
             {running ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="animate-pulse">●</span>
-                Fuzzing {iterations} iterations...
+                Fuzzing {iterCount} iterations...
               </span>
             ) : (
-              `⚡ Run ${iterations} Fuzz Iterations`
+              `⚡ Run ${iterCount} Fuzz Iterations`
             )}
           </button>
+
+          {(running || results) && (
+            <div className="space-y-1">
+              <div className="h-1.5 bg-[#111827] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-gray-500">
+                <span>{results ? "Complete" : `${streamRef.current.length} / ${iterCount}`}</span>
+                <span>{Math.round(progress)}%</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-auto p-3">
@@ -205,6 +236,12 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
                     <span className="text-gray-600">Duration: </span>
                     <span className="text-gray-300">
                       {selectedResult.replay_result.duration_ms}ms
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Bytes sent: </span>
+                    <span className="text-gray-300">
+                      {selectedResult.replay_result.bytes_sent}
                     </span>
                   </div>
                   {selectedResult.replay_result.error && (
@@ -251,26 +288,39 @@ export function FuzzerView({ selectedPacket, setStatusMessage }: FuzzerViewProps
           <h3 className="text-xs font-semibold text-gray-400">Results</h3>
           {results && (
             <>
-              <span className="text-[10px] text-gray-600">
-                {results.filter((r) => r.replay_result.success).length} OK
-              </span>
-              <span className="text-[10px] text-red-400">
-                {results.filter((r) => !r.replay_result.success).length} Errors
-              </span>
-              <span className="text-[10px] text-gray-600">
-                {results.filter((r) => r.replay_result.response).length} Responses
-              </span>
+              <button
+                onClick={() => setFilterMode("all")}
+                className={`text-[10px] px-1.5 py-0.5 rounded ${filterMode === "all" ? "bg-gray-700 text-white" : "text-gray-600 hover:text-gray-400"}`}
+              >
+                All ({results.length})
+              </button>
+              <button
+                onClick={() => setFilterMode("errors")}
+                className={`text-[10px] px-1.5 py-0.5 rounded ${filterMode === "errors" ? "bg-red-900/40 text-red-400" : "text-red-400/60 hover:text-red-400"}`}
+              >
+                Errors ({results.filter((r) => !r.replay_result.success).length})
+              </button>
+              <button
+                onClick={() => setFilterMode("responses")}
+                className={`text-[10px] px-1.5 py-0.5 rounded ${filterMode === "responses" ? "bg-green-900/40 text-green-400" : "text-green-400/60 hover:text-green-400"}`}
+              >
+                Responses ({results.filter((r) => r.replay_result.response).length})
+              </button>
             </>
           )}
         </div>
         <div className="flex-1 overflow-auto p-3">
-          {!results ? (
+          {!results && !running ? (
             <div className="flex items-center justify-center h-full text-gray-600 text-sm">
               Configure and run the fuzzer to see results
             </div>
+          ) : filteredResults.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-gray-600 text-sm">
+              No results match the current filter
+            </div>
           ) : (
             <div className="space-y-1">
-              {results.map((r) => (
+              {filteredResults.map((r) => (
                 <div
                   key={r.iteration}
                   onClick={() => setSelectedResult(r)}

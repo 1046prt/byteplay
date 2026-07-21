@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { HEX_DISPLAY_LIMIT } from "../constants";
 import type { CapturedPacket } from "../types";
@@ -8,6 +8,9 @@ interface PacketListProps {
   selectedPacket: CapturedPacket | null;
   onSelectPacket: (p: CapturedPacket) => void;
 }
+
+type SortKey = "index" | "time" | "protocol" | "src" | "dst" | "length";
+type SortDir = "asc" | "desc";
 
 function formatTime(ts: string): string {
   try {
@@ -71,11 +74,72 @@ function getPreview(p: CapturedPacket): string {
   return ascii || "—";
 }
 
+interface ColumnDef {
+  key: SortKey;
+  label: string;
+  width: string;
+  align?: "right";
+}
+
+const COLUMNS: ColumnDef[] = [
+  { key: "index", label: "#", width: "w-[42px]" },
+  { key: "time", label: "Time", width: "w-[110px]" },
+  { key: "protocol", label: "Proto", width: "w-[50px]", align: "right" },
+  { key: "src", label: "Source", width: "flex-1 min-w-0" },
+  { key: "dst", label: "Destination", width: "flex-1 min-w-0" },
+  { key: "length", label: "Len", width: "w-[55px]", align: "right" },
+];
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return <span className="text-gray-700 ml-0.5">↕</span>;
+  return <span className="text-blue-400 ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
+}
+
 export function PacketList({ packets, selectedPacket, onSelectPacket }: PacketListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("index");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const sortedPackets = useMemo(() => {
+    const sorted = [...packets];
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "index":
+          cmp = a.capture_index - b.capture_index;
+          break;
+        case "time":
+          cmp = a.timestamp.localeCompare(b.timestamp);
+          break;
+        case "protocol":
+          cmp = getProtocol(a).localeCompare(getProtocol(b));
+          break;
+        case "src":
+          cmp = getSrcEndpoint(a).localeCompare(getSrcEndpoint(b));
+          break;
+        case "dst":
+          cmp = getDstEndpoint(a).localeCompare(getDstEndpoint(b));
+          break;
+        case "length":
+          cmp = a.frame_length - b.frame_length;
+          break;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [packets, sortKey, sortDir]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
 
   const virtualizer = useVirtualizer({
-    count: packets.length,
+    count: sortedPackets.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 32,
     overscan: 20,
@@ -90,78 +154,92 @@ export function PacketList({ packets, selectedPacket, onSelectPacket }: PacketLi
 
   useEffect(() => {
     if (selectedPacket) {
-      const idx = packets.findIndex((p) => p.id === selectedPacket.id);
+      const idx = sortedPackets.findIndex((p) => p.id === selectedPacket.id);
       if (idx >= 0) scrollToIndex(idx);
     }
-  }, [selectedPacket, packets, scrollToIndex]);
+  }, [selectedPacket, sortedPackets, scrollToIndex]);
 
   return (
-    <div
-      ref={parentRef}
-      className="h-full overflow-auto"
-      style={{ contain: "strict" }}
-    >
+    <div className="flex flex-col h-full">
+      <div className="flex items-center px-3 py-1 bg-[#0b0f19] border-b border-[#1e293b] text-[10px] font-semibold text-gray-500 uppercase tracking-wider shrink-0 select-none">
+        {COLUMNS.map((col) => (
+          <button
+            key={col.key}
+            onClick={() => handleSort(col.key)}
+            className={`flex items-center shrink-0 hover:text-gray-300 transition-colors ${col.width} ${col.align === "right" ? "text-right justify-end" : ""}`}
+          >
+            {col.label}
+            <SortIcon active={sortKey === col.key} dir={sortDir} />
+          </button>
+        ))}
+        <span className="w-[70px] shrink-0 text-right">Flags</span>
+        <span className="w-[200px] shrink-0 ml-2">Payload</span>
+      </div>
       <div
-        style={{
-          height: `${virtualizer.getTotalSize()}px`,
-          width: "100%",
-          position: "relative",
-        }}
+        ref={parentRef}
+        className="flex-1 overflow-auto"
+        style={{ contain: "strict" }}
       >
-        {virtualizer.getVirtualItems().map((virtualRow) => {
-          const p = packets[virtualRow.index];
-          const isSelected = selectedPacket?.id === p.id;
-          const protocol = getProtocol(p);
-          const hasTcpFlags = p.tcp?.flags;
-          const isSyn = hasTcpFlags && p.tcp!.flags.syn && !p.tcp!.flags.ack;
-          const isRst = hasTcpFlags && p.tcp!.flags.rst;
+        <div
+          style={{
+            height: `${virtualizer.getTotalSize()}px`,
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const p = sortedPackets[virtualRow.index];
+            const isSelected = selectedPacket?.id === p.id;
+            const protocol = getProtocol(p);
+            const hasTcpFlags = p.tcp?.flags;
+            const isSyn = hasTcpFlags && p.tcp!.flags.syn && !p.tcp!.flags.ack;
+            const isRst = hasTcpFlags && p.tcp!.flags.rst;
 
-          return (
-            <div
-              key={p.id}
-              data-index={virtualRow.index}
-              ref={virtualizer.measureElement}
-              onClick={() => onSelectPacket(p)}
-              className={`absolute w-full flex items-center px-3 py-1 text-xs font-mono cursor-pointer border-b border-[#111827] transition-colors ${
-                isSelected
-                  ? "bg-blue-600/20 border-l-2 border-l-blue-500"
-                  : "hover:bg-[#111827] border-l-2 border-l-transparent"
-              } ${isRst ? "bg-red-900/10" : isSyn ? "bg-green-900/10" : ""}`}
-              style={{
-                top: `${virtualRow.start}px`,
-                height: `${virtualRow.size}px`,
-              }}
-            >
-              <span className="w-[28px] text-gray-600 text-[10px] shrink-0">
-                {p.capture_index}
-              </span>
-              <span className="w-[110px] text-gray-500 shrink-0">
-                {formatTime(p.timestamp)}
-              </span>
-              <span className={`w-[40px] text-center font-semibold shrink-0 ${getProtocolColor(protocol)}`}>
-                {protocol}
-              </span>
-              <span className="flex-1 truncate text-gray-300 min-w-0">
-                {getSrcEndpoint(p)}
-              </span>
-              <span className="text-gray-600 mx-1 shrink-0">→</span>
-              <span className="flex-1 truncate text-gray-300 min-w-0">
-                {getDstEndpoint(p)}
-              </span>
-              {hasTcpFlags && (
-                <span className="w-[70px] text-[10px] text-gray-500 shrink-0 truncate">
-                  {getFlags(p)}
+            return (
+              <div
+                key={p.id}
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                onClick={() => onSelectPacket(p)}
+                className={`absolute w-full flex items-center px-3 py-1 text-xs font-mono cursor-pointer border-b border-[#111827] transition-colors ${
+                  isSelected
+                    ? "bg-blue-600/20 border-l-2 border-l-blue-500"
+                    : "hover:bg-[#111827] border-l-2 border-l-transparent"
+                } ${isRst ? "bg-red-900/10" : isSyn ? "bg-green-900/10" : ""}`}
+                style={{
+                  top: `${virtualRow.start}px`,
+                  height: `${virtualRow.size}px`,
+                }}
+              >
+                <span className="w-[42px] text-gray-600 text-[10px] shrink-0">
+                  {p.capture_index}
                 </span>
-              )}
-              <span className="w-[50px] text-right text-gray-500 shrink-0">
-                {p.frame_length}
-              </span>
-              <span className="w-[200px] truncate text-gray-600 ml-2 shrink-0">
-                {getPreview(p)}
-              </span>
-            </div>
-          );
-        })}
+                <span className="w-[110px] text-gray-500 shrink-0">
+                  {formatTime(p.timestamp)}
+                </span>
+                <span className={`w-[50px] text-center font-semibold shrink-0 ${getProtocolColor(protocol)}`}>
+                  {protocol}
+                </span>
+                <span className="flex-1 truncate text-gray-300 min-w-0">
+                  {getSrcEndpoint(p)}
+                </span>
+                <span className="text-gray-600 mx-1 shrink-0">→</span>
+                <span className="flex-1 truncate text-gray-300 min-w-0">
+                  {getDstEndpoint(p)}
+                </span>
+                <span className="w-[70px] text-[10px] text-gray-500 shrink-0 truncate text-right pr-1">
+                  {getFlags(p) || ""}
+                </span>
+                <span className="w-[55px] text-right text-gray-500 shrink-0">
+                  {p.frame_length}
+                </span>
+                <span className="w-[200px] truncate text-gray-600 ml-2 shrink-0">
+                  {getPreview(p)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
