@@ -29,6 +29,7 @@ export function CaptureView({
   const [selectedInterface, setSelectedInterface] = useState("");
   const [bpfFilter, setBpfFilter] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [debouncedFilter, setDebouncedFilter] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -45,6 +46,12 @@ export function CaptureView({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [filterText]);
+
+  useEffect(() => {
+    const handler = () => setShowSaveDialog(true);
+    window.addEventListener("packetforge:save-packet", handler);
+    return () => window.removeEventListener("packetforge:save-packet", handler);
+  }, []);
 
   const loadInterfaces = async () => {
     try {
@@ -117,6 +124,8 @@ export function CaptureView({
       p.payload_ascii.toLowerCase().includes(lower) ||
       (p.ipv4?.src_ip.includes(lower)) ||
       (p.ipv4?.dst_ip.includes(lower)) ||
+      (p.ipv6?.src_ip?.includes(lower)) ||
+      (p.ipv6?.dst_ip?.includes(lower)) ||
       (p.tcp?.src_port.toString().includes(lower)) ||
       (p.tcp?.dst_port.toString().includes(lower)) ||
       (p.udp?.src_port.toString().includes(lower)) ||
@@ -174,6 +183,14 @@ export function CaptureView({
               Save
             </button>
           )}
+          {packets.length > 0 && (
+            <button
+              onClick={() => setShowExportDialog(true)}
+              className="btn btn-secondary text-xs"
+            >
+              Export
+            </button>
+          )}
         </div>
         <PacketList
           packets={filteredPackets}
@@ -191,6 +208,14 @@ export function CaptureView({
         <SaveDialog
           onSave={handleSavePacket}
           onClose={() => setShowSaveDialog(false)}
+        />
+      )}
+
+      {showExportDialog && (
+        <ExportDialog
+          packets={packets}
+          onClose={() => setShowExportDialog(false)}
+          setStatusMessage={setStatusMessage}
         />
       )}
     </div>
@@ -252,6 +277,95 @@ function SaveDialog({
             className="btn btn-primary text-xs disabled:opacity-50"
           >
             Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExportDialog({
+  packets,
+  onClose,
+  setStatusMessage,
+}: {
+  packets: CapturedPacket[];
+  onClose: () => void;
+  setStatusMessage: (msg: string) => void;
+}) {
+  const [format, setFormat] = useState<"pcap" | "json">("pcap");
+  const [filename, setFilename] = useState("capture");
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const ext = format === "pcap" ? ".pcap" : ".json";
+      const path = `${filename}${ext}`;
+      const ids = packets.map((p) => p.id);
+
+      let result: string;
+      if (format === "pcap") {
+        result = await commands.exportPcap(ids, path);
+      } else {
+        result = await commands.exportJson(ids, path);
+      }
+      setStatusMessage(result);
+      onClose();
+    } catch (e) {
+      setStatusMessage(`Export failed: ${e}`);
+    }
+    setExporting(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="panel p-4 w-[400px] space-y-3">
+        <h3 className="text-sm font-semibold text-white">Export Packets</h3>
+        <p className="text-xs text-gray-500">{packets.length} packet{packets.length !== 1 ? "s" : ""} will be exported</p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setFormat("pcap")}
+            className={`btn text-xs flex-1 ${format === "pcap" ? "btn-primary" : "btn-secondary"}`}
+          >
+            PCAP
+          </button>
+          <button
+            onClick={() => setFormat("json")}
+            className={`btn text-xs flex-1 ${format === "json" ? "btn-primary" : "btn-secondary"}`}
+          >
+            JSON
+          </button>
+        </div>
+        <input
+          type="text"
+          placeholder="Filename (without extension)"
+          value={filename}
+          onChange={(e) => setFilename(e.target.value)}
+          className="input w-full"
+          autoFocus
+        />
+        <p className="text-[10px] text-gray-600 font-mono">
+          Saves to: {filename}{format === "pcap" ? ".pcap" : ".json"}
+        </p>
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onClose} className="btn btn-secondary text-xs">
+            Cancel
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting || !filename.trim()}
+            className="btn btn-primary text-xs disabled:opacity-50"
+          >
+            {exporting ? "Exporting..." : "Export"}
           </button>
         </div>
       </div>

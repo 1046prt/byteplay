@@ -182,3 +182,10 @@ export interface CaptureConfig {
 }
 
 export type ViewMode = "capture" | "library" | "replay" | "sequences" | "fuzzer";
+
+export interface CaptureStats {
+  packetsPerSecond: number;
+  bytesPerSecond: number;
+  totalBytes: number;
+  duration: number;
+}

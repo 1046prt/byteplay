@@ -1,17 +1,41 @@
-import { useState } from "react";
-import type { CapturedPacket } from "../types";
+import { useState, useEffect, useCallback } from "react";
+import { commands } from "../commands";
+import type { CapturedPacket, HexDiffEntry } from "../types";
 import { HexViewer } from "./HexViewer";
 
 interface PacketDetailProps {
   packet: CapturedPacket | null;
 }
 
-type DetailTab = "headers" | "payload" | "raw";
+type DetailTab = "headers" | "payload" | "raw" | "diff";
 
 export function PacketDetail({ packet }: PacketDetailProps) {
   const [tab, setTab] = useState<DetailTab>("headers");
   const [editablePayload, setEditablePayload] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
+  const [modifiedBytes, setModifiedBytes] = useState<number[] | null>(null);
+  const [diffEntries, setDiffEntries] = useState<HexDiffEntry[] | null>(null);
+
+  useEffect(() => {
+    setTab("headers");
+    setIsEditing(false);
+    setModifiedBytes(null);
+    setDiffEntries(null);
+  }, [packet?.id]);
+
+  const handleApplyEdit = useCallback(() => {
+    if (!packet) return;
+    const newBytes = Array.from(new TextEncoder().encode(editablePayload));
+    setModifiedBytes(newBytes);
+    setIsEditing(false);
+    setTab("diff");
+    commands.computeHexDiff(packet.payload, newBytes).then(setDiffEntries);
+  }, [packet, editablePayload]);
+
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    if (packet) setEditablePayload(packet.payload_ascii);
+  }, [packet]);
 
   if (!packet) {
     return (
@@ -26,15 +50,15 @@ export function PacketDetail({ packet }: PacketDetailProps) {
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-1 p-2 bg-[#0d1117] border-b border-[#1e293b]">
-        {(["headers", "payload", "raw"] as DetailTab[]).map((t) => (
+        {(["headers", "payload", "raw", "diff"] as DetailTab[]).map((t) => (
           <button
             key={t}
             onClick={() => {
               setTab(t);
               if (t === "payload" && packet) {
                 setEditablePayload(packet.payload_ascii);
+                setIsEditing(false);
               }
-              setIsEditing(false);
             }}
             className={`px-3 py-1 text-xs rounded-md capitalize transition-colors ${
               tab === t
@@ -42,7 +66,14 @@ export function PacketDetail({ packet }: PacketDetailProps) {
                 : "text-gray-500 hover:text-gray-300"
             }`}
           >
-            {t}
+            {t === "diff" ? (
+              <span className="flex items-center gap-1">
+                diff
+                {diffEntries && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                )}
+              </span>
+            ) : t}
           </button>
         ))}
         <div className="flex-1" />
@@ -60,11 +91,20 @@ export function PacketDetail({ packet }: PacketDetailProps) {
             setEditablePayload={setEditablePayload}
             isEditing={isEditing}
             setIsEditing={setIsEditing}
+            onApply={handleApplyEdit}
+            onCancel={handleCancelEdit}
           />
         )}
         {tab === "raw" && (
-          <HexViewer
-            bytes={packet.raw_bytes}
+          <HexViewer bytes={packet.raw_bytes} />
+        )}
+        {tab === "diff" && (
+          <DiffView
+            original={packet.payload}
+            modified={modifiedBytes}
+            entries={diffEntries}
+            originalLabel="Original payload"
+            modifiedLabel="Modified payload"
           />
         )}
       </div>
@@ -196,25 +236,40 @@ function PayloadView({
   setEditablePayload,
   isEditing,
   setIsEditing,
+  onApply,
+  onCancel,
 }: {
   packet: CapturedPacket;
   editablePayload: string;
   setEditablePayload: (v: string) => void;
   isEditing: boolean;
   setIsEditing: (v: boolean) => void;
+  onApply: () => void;
+  onCancel: () => void;
 }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <button
-          onClick={() => setIsEditing(!isEditing)}
-          className={`btn text-xs ${isEditing ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => {
+            if (isEditing) {
+              onCancel();
+            } else {
+              setIsEditing(true);
+            }
+          }}
+          className={`btn text-xs ${isEditing ? "btn-secondary" : "btn-secondary"}`}
         >
-          {isEditing ? "Editing" : "Edit Payload"}
+          {isEditing ? "Cancel" : "Edit Payload"}
         </button>
         {isEditing && (
+          <button onClick={onApply} className="btn btn-primary text-xs">
+            Apply & Diff
+          </button>
+        )}
+        {isEditing && (
           <span className="text-[10px] text-gray-500">
-            Modify the ASCII payload below
+            Modify ASCII below, then apply to see hex diff
           </span>
         )}
       </div>
@@ -225,6 +280,7 @@ function PayloadView({
             onChange={(e) => setEditablePayload(e.target.value)}
             className="w-full h-[300px] bg-transparent font-mono text-xs text-gray-300 resize-none outline-none"
             spellCheck={false}
+            autoFocus
           />
         ) : (
           <div className="font-mono text-xs text-gray-300 whitespace-pre-wrap break-all min-h-[300px]">
@@ -238,6 +294,139 @@ function PayloadView({
           <HexViewer bytes={packet.payload} />
         </div>
       )}
+    </div>
+  );
+}
+
+function DiffView({
+  original: _original,
+  modified,
+  entries,
+  originalLabel,
+  modifiedLabel,
+}: {
+  original: number[];
+  modified: number[] | null;
+  entries: HexDiffEntry[] | null;
+  originalLabel: string;
+  modifiedLabel: string;
+}) {
+  if (!modified || !entries) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-600 text-sm">
+        Edit the payload in the Payload tab to see a diff
+      </div>
+    );
+  }
+
+  const changedCount = entries.filter((e) => e.changed).length;
+  const BYTES_PER_LINE = 16;
+
+  const lines: Array<{
+    offset: number;
+    origBytes: Array<{ val: number; changed: boolean }>;
+    modBytes: Array<{ val: number; changed: boolean }>;
+    origAscii: string;
+    modAscii: string;
+  }> = [];
+
+  for (let i = 0; i < entries.length; i += BYTES_PER_LINE) {
+    const origBytes: Array<{ val: number; changed: boolean }> = [];
+    const modBytes: Array<{ val: number; changed: boolean }> = [];
+    let origAscii = "";
+    let modAscii = "";
+
+    for (let j = 0; j < BYTES_PER_LINE && i + j < entries.length; j++) {
+      const entry = entries[i + j];
+      const ob = entry.original ?? 0;
+      const mb = entry.modified ?? 0;
+
+      origBytes.push({ val: ob, changed: entry.changed });
+      modBytes.push({ val: mb, changed: entry.changed });
+
+      origAscii += entry.changed ? "·" : (ob >= 0x20 && ob <= 0x7e ? String.fromCharCode(ob) : ".");
+      modAscii += entry.changed
+        ? (mb >= 0x20 && mb <= 0x7e ? String.fromCharCode(mb) : "·")
+        : "·";
+    }
+    lines.push({ offset: i, origBytes, modBytes, origAscii, modAscii });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-4 text-xs">
+        <span className="text-gray-400">{originalLabel}</span>
+        <span className="text-gray-600">→</span>
+        <span className="text-gray-400">{modifiedLabel}</span>
+        <div className="flex-1" />
+        <span className="text-amber-400 font-mono">{changedCount} byte{changedCount !== 1 ? "s" : ""} changed</span>
+      </div>
+
+      <div className="panel p-3 font-mono text-[11px] leading-5">
+        <div className="flex text-gray-600 mb-1 text-[10px] select-none">
+          <span className="w-[70px] shrink-0">Offset</span>
+          <span className="flex gap-0">
+            {Array.from({ length: BYTES_PER_LINE }, (_, i) => (
+              <span key={i} className="w-[22px] text-center">
+                {i.toString(16).padStart(2, "0").toUpperCase()}
+              </span>
+            ))}
+          </span>
+          <span className="ml-2 w-[130px] shrink-0">ASCII</span>
+        </div>
+
+        {lines.map((line) => (
+          <div key={line.offset} className="flex">
+            <span className="w-[70px] text-gray-600 shrink-0">
+              {line.offset.toString(16).padStart(8, "0")}
+            </span>
+            <span className="flex gap-0">
+              {line.origBytes.map((entry, j) => (
+                <span
+                  key={j}
+                  className={`w-[22px] text-center ${
+                    entry.changed ? "bg-red-900/40 text-red-400 font-bold" : "text-gray-400"
+                  }`}
+                >
+                  {entry.val.toString(16).padStart(2, "0")}
+                </span>
+              ))}
+              {line.origBytes.length < BYTES_PER_LINE &&
+                Array.from({ length: BYTES_PER_LINE - line.origBytes.length }, (_, i) => (
+                  <span key={`pad-${i}`} className="w-[22px] text-center text-gray-800">·</span>
+                ))}
+            </span>
+            <span className="ml-2 w-[130px] text-gray-500 shrink-0 whitespace-pre">{line.origAscii}</span>
+          </div>
+        ))}
+
+        <div className="border-t border-[#1e293b] my-1" />
+
+        {lines.map((line) => (
+          <div key={`mod-${line.offset}`} className="flex">
+            <span className="w-[70px] text-gray-600 shrink-0">
+              {line.offset.toString(16).padStart(8, "0")}
+            </span>
+            <span className="flex gap-0">
+              {line.modBytes.map((entry, j) => (
+                <span
+                  key={j}
+                  className={`w-[22px] text-center ${
+                    entry.changed ? "bg-green-900/40 text-green-400 font-bold" : "text-gray-500"
+                  }`}
+                >
+                  {entry.val.toString(16).padStart(2, "0")}
+                </span>
+              ))}
+              {line.modBytes.length < BYTES_PER_LINE &&
+                Array.from({ length: BYTES_PER_LINE - line.modBytes.length }, (_, i) => (
+                  <span key={`pad-${i}`} className="w-[22px] text-center text-gray-800">·</span>
+                ))}
+            </span>
+            <span className="ml-2 w-[130px] text-gray-500 shrink-0 whitespace-pre">{line.modAscii}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
