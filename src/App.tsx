@@ -18,13 +18,16 @@ import { SequenceView } from "./components/SequenceView";
 import { FuzzerView } from "./components/FuzzerView";
 import { ToastProvider } from "./components/Toast";
 import { ContextMenuRenderer } from "./components/ContextMenu";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AppInner />
-      <ContextMenuRenderer />
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <AppInner />
+        <ContextMenuRenderer />
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -236,7 +239,9 @@ function AppInner() {
               onRefresh={loadSavedData}
               onSelectPacket={(p) => {
                 setSelectedPacket(null);
-                setTimeout(() => {
+                commands.reparsePacket(p.raw_bytes, "library").then((parsed) => {
+                  setSelectedPacket(parsed);
+                }).catch(() => {
                   const ascii = p.payload.map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : ".")).join("");
                   setSelectedPacket({
                     id: p.id,
@@ -254,7 +259,7 @@ function AppInner() {
                     payload_ascii: ascii,
                     capture_index: 0,
                   });
-                }, 0);
+                });
                 setView("capture");
               }}
               setStatusMessage={setStatusMessage}

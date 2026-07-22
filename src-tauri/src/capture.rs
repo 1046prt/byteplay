@@ -6,6 +6,8 @@ use std::thread;
 
 use crate::parser::parse_packet;
 
+const MAX_STORED_PACKETS: usize = 50_000;
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CaptureConfig {
     pub interface_name: String,
@@ -97,9 +99,21 @@ impl CaptureEngine {
         self.running.store(true, Ordering::SeqCst);
         let running = self.running.clone();
 
+        let filter = config.bpf_filter.trim().to_string();
+        if !filter.is_empty() {
+            warn!(
+                "BPF filter '{}' cannot be applied at kernel level via pnet; using application-level filtering",
+                filter
+            );
+        }
+
         thread::spawn(move || {
             info!("Capture started on interface: {}", config.interface_name);
+            if !filter.is_empty() {
+                info!("Application-level filter active: {}", filter);
+            }
             let mut count = 0usize;
+            let mut matched = 0usize;
 
             loop {
                 if !running.load(Ordering::SeqCst) {
@@ -110,6 +124,12 @@ impl CaptureEngine {
                     Ok(packet) => {
                         count += 1;
                         let parsed = parse_packet(packet.to_vec(), config.interface_name.clone());
+
+                        if !filter.is_empty() && !matches_filter(&parsed, &filter) {
+                            continue;
+                        }
+
+                        matched += 1;
                         let captured = CapturedPacket {
                             id: parsed.id,
                             timestamp: parsed.timestamp,
@@ -124,7 +144,7 @@ impl CaptureEngine {
                             payload: parsed.payload,
                             payload_hex: parsed.payload_hex,
                             payload_ascii: parsed.payload_ascii,
-                            capture_index: count,
+                            capture_index: matched,
                         };
 
                         if tx.send(captured).is_err() {
@@ -133,7 +153,7 @@ impl CaptureEngine {
                         }
 
                         if let Some(max) = config.max_packets {
-                            if count >= max as usize {
+                            if matched >= max as usize {
                                 info!("Reached max packet limit: {}", max);
                                 break;
                             }
@@ -151,7 +171,10 @@ impl CaptureEngine {
             }
 
             running.store(false, Ordering::SeqCst);
-            info!("Capture stopped. Total packets: {}", count);
+            info!(
+                "Capture stopped. Total seen: {}, matched filter: {}",
+                count, matched
+            );
         });
 
         Ok(())
@@ -166,23 +189,147 @@ impl CaptureEngine {
     }
 
     pub fn store_packet(&self, packet: CapturedPacket) {
-        self.packets.lock().unwrap().push(packet);
+        let mut pkts = match self.packets.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
+        if pkts.len() >= MAX_STORED_PACKETS {
+            pkts.drain(..MAX_STORED_PACKETS / 10);
+        }
+        pkts.push(packet);
     }
 
     pub fn get_packets(&self) -> Vec<CapturedPacket> {
-        self.packets.lock().unwrap().clone()
+        match self.packets.lock() {
+            Ok(pkts) => pkts.clone(),
+            Err(poisoned) => {
+                warn!("Mutex poisoned, recovering");
+                poisoned.into_inner().clone()
+            }
+        }
     }
 
     pub fn get_packet_by_id(&self, id: &str) -> Option<CapturedPacket> {
-        self.packets
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|p| p.id == id)
-            .cloned()
+        let pkts = match self.packets.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
+        pkts.iter().find(|p| p.id == id).cloned()
     }
 
     pub fn clear_packets(&self) {
-        self.packets.lock().unwrap().clear();
+        match self.packets.lock() {
+            Ok(mut pkts) => pkts.clear(),
+            Err(poisoned) => {
+                warn!("Mutex poisoned, recovering");
+                poisoned.into_inner().clear();
+            }
+        }
     }
+}
+
+fn matches_filter(packet: &crate::parser::ParsedPacket, filter: &str) -> bool {
+    let lower = filter.to_lowercase();
+    let tokens: Vec<&str> = lower.split_whitespace().collect();
+    for token in &tokens {
+        let t = *token;
+        match t {
+            "tcp" => {
+                if packet.tcp.is_none() {
+                    return false;
+                }
+            }
+            "udp" => {
+                if packet.udp.is_none() {
+                    return false;
+                }
+            }
+            "icmp" | "icmpv6" => {
+                if packet.tcp.is_none() && packet.udp.is_none() {
+                    // No transport layer — likely ICMP
+                } else {
+                    return false;
+                }
+            }
+            _ => {
+                // Try port number filter
+                if let Ok(port) = t.parse::<u16>() {
+                    let src_match = packet
+                        .tcp
+                        .as_ref()
+                        .map(|t| t.src_port == port)
+                        .or_else(|| packet.udp.as_ref().map(|u| u.src_port == port))
+                        .unwrap_or(false);
+                    let dst_match = packet
+                        .tcp
+                        .as_ref()
+                        .map(|t| t.dst_port == port)
+                        .or_else(|| packet.udp.as_ref().map(|u| u.dst_port == port))
+                        .unwrap_or(false);
+                    if !src_match && !dst_match {
+                        return false;
+                    }
+                }
+                // Try IP address filter
+                else if let Some(ip_str) = t.strip_prefix("host ") {
+                    let src_match = packet
+                        .ipv4
+                        .as_ref()
+                        .map(|ip| ip.src_ip == ip_str)
+                        .unwrap_or(false)
+                        || packet
+                            .ipv6
+                            .as_ref()
+                            .map(|ip| ip.src_ip == ip_str)
+                            .unwrap_or(false);
+                    let dst_match = packet
+                        .ipv4
+                        .as_ref()
+                        .map(|ip| ip.dst_ip == ip_str)
+                        .unwrap_or(false)
+                        || packet
+                            .ipv6
+                            .as_ref()
+                            .map(|ip| ip.dst_ip == ip_str)
+                            .unwrap_or(false);
+                    if !src_match && !dst_match {
+                        return false;
+                    }
+                }
+                // Bare IP address
+                else if t.contains('.') || t.contains(':') {
+                    let src_match = packet
+                        .ipv4
+                        .as_ref()
+                        .map(|ip| ip.src_ip == t)
+                        .unwrap_or(false)
+                        || packet
+                            .ipv6
+                            .as_ref()
+                            .map(|ip| ip.src_ip == t)
+                            .unwrap_or(false);
+                    let dst_match = packet
+                        .ipv4
+                        .as_ref()
+                        .map(|ip| ip.dst_ip == t)
+                        .unwrap_or(false)
+                        || packet
+                            .ipv6
+                            .as_ref()
+                            .map(|ip| ip.dst_ip == t)
+                            .unwrap_or(false);
+                    if !src_match && !dst_match {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    true
 }

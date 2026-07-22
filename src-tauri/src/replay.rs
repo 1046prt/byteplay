@@ -114,7 +114,19 @@ pub fn replay_packet(data: &[u8], config: ReplayConfig) -> ReplayResult {
 }
 
 fn send_tcp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, String> {
-    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+    let addr = format!("{}:{}", config.target_host, config.target_port)
+        .to_socket_addrs()
+        .map_err(|e| format!("Failed to resolve address: {}", e))?
+        .next()
+        .ok_or_else(|| "No addresses resolved".to_string())?;
+
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
         .map_err(|e| format!("Failed to create TCP socket: {}", e))?;
 
     socket
@@ -124,12 +136,6 @@ fn send_tcp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, Strin
     socket
         .set_write_timeout(Some(Duration::from_millis(config.timeout_ms)))
         .map_err(|e| format!("Failed to set write timeout: {}", e))?;
-
-    let addr = format!("{}:{}", config.target_host, config.target_port)
-        .to_socket_addrs()
-        .map_err(|e| format!("Failed to resolve address: {}", e))?
-        .next()
-        .ok_or_else(|| "No addresses resolved".to_string())?;
 
     socket
         .connect(&addr.into())
@@ -167,18 +173,24 @@ fn send_tcp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, Strin
 use std::io::Read;
 
 fn send_udp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, String> {
-    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))
-        .map_err(|e| format!("Failed to create UDP socket: {}", e))?;
-
-    socket
-        .set_read_timeout(Some(Duration::from_millis(config.timeout_ms)))
-        .map_err(|e| format!("Failed to set read timeout: {}", e))?;
-
     let addr = format!("{}:{}", config.target_host, config.target_port)
         .to_socket_addrs()
         .map_err(|e| format!("Failed to resolve address: {}", e))?
         .next()
         .ok_or_else(|| "No addresses resolved".to_string())?;
+
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+
+    let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))
+        .map_err(|e| format!("Failed to create UDP socket: {}", e))?;
+
+    socket
+        .set_read_timeout(Some(Duration::from_millis(config.timeout_ms)))
+        .map_err(|e| format!("Failed to set read timeout: {}", e))?;
 
     socket
         .send_to(data, &addr.into())

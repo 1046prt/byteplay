@@ -22,6 +22,8 @@ export const commands = {
   pollPackets: () => invoke<CapturedPacket[]>("poll_packets"),
   getPacketById: (id: string) =>
     invoke<CapturedPacket | null>("get_packet_by_id", { id }),
+  reparsePacket: (rawBytes: number[], interfaceName: string) =>
+    invoke<CapturedPacket>("reparse_packet", { rawBytes, interface: interfaceName }),
   clearPackets: () => invoke<string>("clear_packets"),
 
   savePacket: (packetId: string, name: string, description: string, tags: string[]) =>

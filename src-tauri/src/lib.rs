@@ -73,6 +73,29 @@ fn get_packet_by_id(
 }
 
 #[tauri::command]
+fn reparse_packet(raw_bytes: Vec<u8>, interface: String) -> Result<CapturedPacket, String> {
+    use crate::capture::CapturedPacket as CP;
+    use crate::parser::parse_packet;
+    let parsed = parse_packet(raw_bytes, interface);
+    Ok(CP {
+        id: parsed.id,
+        timestamp: parsed.timestamp,
+        interface: parsed.interface,
+        frame_length: parsed.frame_length,
+        ethernet: parsed.ethernet,
+        ipv4: parsed.ipv4,
+        ipv6: parsed.ipv6,
+        tcp: parsed.tcp,
+        udp: parsed.udp,
+        raw_bytes: parsed.raw_bytes,
+        payload: parsed.payload,
+        payload_hex: parsed.payload_hex,
+        payload_ascii: parsed.payload_ascii,
+        capture_index: 0,
+    })
+}
+
+#[tauri::command]
 fn clear_packets(state: State<'_, AppState>) -> Result<String, String> {
     state.capture_engine.clear_packets();
     Ok("Packets cleared".to_string())
@@ -98,53 +121,34 @@ fn save_packet(
         .or_else(|| packet.udp.as_ref().map(|_| "UDP".to_string()))
         .unwrap_or_else(|| "Unknown".to_string());
 
+    let port = packet
+        .tcp
+        .as_ref()
+        .map(|t| (t.src_port, t.dst_port))
+        .or_else(|| packet.udp.as_ref().map(|u| (u.src_port, u.dst_port)))
+        .unwrap_or((0, 0));
+
     let src_endpoint = packet
         .ipv4
         .as_ref()
-        .map(|ip| {
-            let port = packet
-                .tcp
-                .as_ref()
-                .map(|t| t.src_port)
-                .or_else(|| packet.udp.as_ref().map(|u| u.src_port))
-                .unwrap_or(0);
-            format!("{}:{}", ip.src_ip, port)
-        })
+        .map(|ip| format!("{}:{}", ip.src_ip, port.0))
         .or_else(|| {
-            packet.ipv6.as_ref().map(|ip| {
-                let port = packet
-                    .tcp
-                    .as_ref()
-                    .map(|t| t.src_port)
-                    .or_else(|| packet.udp.as_ref().map(|u| u.src_port))
-                    .unwrap_or(0);
-                format!("{}:{}", ip.src_ip, port)
-            })
+            packet
+                .ipv6
+                .as_ref()
+                .map(|ip| format!("{}:{}", ip.src_ip, port.0))
         })
         .unwrap_or_else(|| "Unknown".to_string());
 
     let dst_endpoint = packet
         .ipv4
         .as_ref()
-        .map(|ip| {
-            let port = packet
-                .tcp
-                .as_ref()
-                .map(|t| t.dst_port)
-                .or_else(|| packet.udp.as_ref().map(|u| u.dst_port))
-                .unwrap_or(0);
-            format!("{}:{}", ip.dst_ip, port)
-        })
+        .map(|ip| format!("{}:{}", ip.dst_ip, port.1))
         .or_else(|| {
-            packet.ipv6.as_ref().map(|ip| {
-                let port = packet
-                    .tcp
-                    .as_ref()
-                    .map(|t| t.dst_port)
-                    .or_else(|| packet.udp.as_ref().map(|u| u.dst_port))
-                    .unwrap_or(0);
-                format!("{}:{}", ip.dst_ip, port)
-            })
+            packet
+                .ipv6
+                .as_ref()
+                .map(|ip| format!("{}:{}", ip.dst_ip, port.1))
         })
         .unwrap_or_else(|| "Unknown".to_string());
 
@@ -424,13 +428,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             Ok(())
         })
         .manage(state)
@@ -440,6 +442,7 @@ pub fn run() {
             stop_capture,
             poll_packets,
             get_packet_by_id,
+            reparse_packet,
             clear_packets,
             save_packet,
             get_saved_packets,
