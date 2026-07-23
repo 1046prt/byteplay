@@ -15,6 +15,7 @@ const navItems: { id: ViewMode; label: string; icon: string }[] = [
   { id: "replay", label: "Replay", icon: "▶" },
   { id: "sequences", label: "Sequences", icon: "⛓" },
   { id: "fuzzer", label: "Fuzzer", icon: "⚡" },
+  { id: "stats", label: "Statistics", icon: "📊" },
 ];
 
 export function Sidebar({
@@ -30,6 +31,7 @@ export function Sidebar({
     replay: 0,
     sequences: sequenceCount,
     fuzzer: 0,
+    stats: 0,
   };
 
   return (

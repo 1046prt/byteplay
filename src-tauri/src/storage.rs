@@ -358,4 +358,74 @@ impl Storage {
         info!("Exported {} packets to JSON: {}", packets.len(), path);
         Ok(())
     }
+
+    pub fn import_pcap(&self, path: &str) -> Result<Vec<CapturedPacket>, String> {
+        let data = fs::read(path).map_err(|e| format!("Failed to read PCAP file: {}", e))?;
+        if data.len() < 24 {
+            return Err("File too small to be a valid PCAP".to_string());
+        }
+
+        let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+        let (big_endian, nanosecond) = match magic {
+            0xa1b2c3d4 => (false, false),
+            0xd4c3b2a1 => (true, false),
+            0xa1b23c4d => (false, true),
+            0x4d3cb2a1 => (true, true),
+            _ => return Err(format!("Invalid PCAP magic: 0x{:08x}", magic)),
+        };
+
+        let read_u32 = |offset: usize| -> u32 {
+            let bytes = [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]];
+            if big_endian { u32::from_be_bytes(bytes) } else { u32::from_le_bytes(bytes) }
+        };
+
+        let _linktype = read_u32(20);
+        let mut offset = 24usize;
+        let mut packets = Vec::new();
+        let mut idx = 0usize;
+
+        while offset + 16 <= data.len() {
+            let tv_sec = read_u32(offset);
+            let tv_frac = read_u32(offset + 4);
+            let incl_len = read_u32(offset + 8) as usize;
+            let _orig_len = read_u32(offset + 12);
+
+            offset += 16;
+            if offset + incl_len > data.len() {
+                break;
+            }
+
+            let raw_bytes = data[offset..offset + incl_len].to_vec();
+            idx += 1;
+
+            let usec = if nanosecond { tv_frac / 1000 } else { tv_frac };
+            let ts_str = chrono::DateTime::from_timestamp(tv_sec as i64, usec * 1000)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| format!("{}.{:06}", tv_sec, usec));
+
+            let parsed = crate::parser::parse_packet(raw_bytes, "imported".to_string());
+            let captured = CapturedPacket {
+                id: parsed.id,
+                timestamp: ts_str,
+                interface: parsed.interface,
+                frame_length: parsed.frame_length,
+                ethernet: parsed.ethernet,
+                ipv4: parsed.ipv4,
+                ipv6: parsed.ipv6,
+                tcp: parsed.tcp,
+                udp: parsed.udp,
+                raw_bytes: parsed.raw_bytes,
+                payload: parsed.payload,
+                payload_hex: parsed.payload_hex,
+                payload_ascii: parsed.payload_ascii,
+                capture_index: idx,
+            };
+
+            packets.push(captured);
+            offset += incl_len;
+        }
+
+        info!("Imported {} packets from PCAP: {}", packets.len(), path);
+        Ok(packets)
+    }
 }

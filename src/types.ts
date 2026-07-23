@@ -181,11 +181,37 @@ export interface CaptureConfig {
   max_packets: number | null;
 }
 
-export type ViewMode = "capture" | "library" | "replay" | "sequences" | "fuzzer";
+export type ViewMode = "capture" | "library" | "replay" | "sequences" | "fuzzer" | "stats";
 
 export interface CaptureStats {
   packetsPerSecond: number;
   bytesPerSecond: number;
   totalBytes: number;
   duration: number;
+}
+
+export interface ProtocolStat {
+  protocol: string;
+  count: number;
+  bytes: number;
+}
+
+export interface EndpointStat {
+  endpoint: string;
+  count: number;
+}
+
+export interface TimeBucket {
+  timestamp: string;
+  count: number;
+  bytes: number;
+}
+
+export interface CaptureStatsData {
+  total_packets: number;
+  total_bytes: number;
+  protocols: ProtocolStat[];
+  top_sources: EndpointStat[];
+  top_destinations: EndpointStat[];
+  timeline: TimeBucket[];
 }

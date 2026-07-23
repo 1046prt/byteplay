@@ -14,6 +14,7 @@ interface CaptureViewProps {
   setIsCapturing: (v: boolean) => void;
   onClearPackets: () => void;
   onSaved: () => void;
+  onImportPcap: (imported: CapturedPacket[]) => void;
   setStatusMessage: (msg: string) => void;
 }
 
@@ -25,6 +26,7 @@ export function CaptureView({
   setIsCapturing,
   onClearPackets,
   onSaved,
+  onImportPcap,
   setStatusMessage,
 }: CaptureViewProps) {
   const [interfaces, setInterfaces] = useState<string[]>([]);
@@ -35,6 +37,8 @@ export function CaptureView({
   const [filterText, setFilterText] = useState("");
   const [debouncedFilter, setDebouncedFilter] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  const [protocolFilter, setProtocolFilter] = useState<string>("all");
+  const [isDragging, setIsDragging] = useState(false);
   const debounceRef = useRef<number | null>(null);
   const { toast } = useToast();
   const { showContextMenu } = useContextMenu();
@@ -121,6 +125,35 @@ export function CaptureView({
     }
   };
 
+  const handleImportFile = async (file: File) => {
+    if (!file.name.endsWith(".pcap") && !file.name.endsWith(".pcapng")) {
+      toast("Only .pcap files are supported", "error");
+      return;
+    }
+    try {
+      toast(`Importing ${file.name}...`, "info");
+      const imported = await commands.importPcap(file.name);
+      onImportPcap(imported);
+      toast(`Imported ${imported.length} packets from ${file.name}`, "success");
+    } catch (e) {
+      toast(`Import failed: ${e}`, "error");
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => setIsDragging(false);
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleImportFile(file);
+  };
+
   const handlePacketContextMenu = (e: React.MouseEvent, p: CapturedPacket) => {
     const items: ContextMenuItem[] = [
       {
@@ -174,6 +207,10 @@ export function CaptureView({
   };
 
   const filteredPackets = useMemo(() => packets.filter((p) => {
+    if (protocolFilter !== "all") {
+      const proto = p.tcp ? "tcp" : p.udp ? "udp" : "other";
+      if (proto !== protocolFilter) return false;
+    }
     if (!debouncedFilter) return true;
     const lower = debouncedFilter.toLowerCase();
     return (
@@ -188,10 +225,23 @@ export function CaptureView({
       (p.udp?.src_port.toString().includes(lower)) ||
       (p.udp?.dst_port.toString().includes(lower))
     );
-  }), [packets, debouncedFilter]);
+  }), [packets, debouncedFilter, protocolFilter]);
 
   return (
-    <div className="flex h-full">
+    <div
+      className="flex h-full relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-blue-600/20 border-2 border-dashed border-blue-400 flex items-center justify-center pointer-events-none">
+          <div className="text-center">
+            <div className="text-3xl mb-2">📂</div>
+            <p className="text-sm text-blue-300 font-medium">Drop .pcap file to import</p>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col flex-1 min-w-0 border-r border-[#1e293b]">
         <div className="flex items-center gap-2 p-2 bg-[#0d1117] border-b border-[#1e293b]">
           <select
@@ -263,6 +313,35 @@ export function CaptureView({
               Export
             </button>
           )}
+          <label className="btn btn-secondary text-xs cursor-pointer">
+            Import
+            <input
+              type="file"
+              accept=".pcap,.pcapng"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportFile(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <div className="h-5 w-px bg-[#1e293b] mx-1" />
+          <div className="flex items-center gap-0.5">
+            {(["all", "tcp", "udp", "other"] as const).map((proto) => (
+              <button
+                key={proto}
+                onClick={() => setProtocolFilter(proto)}
+                className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                  protocolFilter === proto
+                    ? "bg-blue-600/30 text-blue-400"
+                    : "text-gray-500 hover:text-gray-300 hover:bg-[#161b22]"
+                }`}
+              >
+                {proto.toUpperCase()}
+              </button>
+            ))}
+          </div>
         </div>
         <PacketList
           packets={filteredPackets}

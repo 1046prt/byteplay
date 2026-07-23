@@ -16,6 +16,7 @@ import { LibraryView } from "./components/LibraryView";
 import { ReplayView } from "./components/ReplayView";
 import { SequenceView } from "./components/SequenceView";
 import { FuzzerView } from "./components/FuzzerView";
+import { StatsView } from "./components/StatsView";
 import { ToastProvider } from "./components/Toast";
 import { ContextMenuRenderer } from "./components/ContextMenu";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -188,6 +189,7 @@ function AppInner() {
       else if (e.key === "3") setView("replay");
       else if (e.key === "4") setView("sequences");
       else if (e.key === "5") setView("fuzzer");
+      else if (e.key === "6") setView("stats");
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -203,6 +205,11 @@ function AppInner() {
     setCaptureStats({ packetsPerSecond: 0, bytesPerSecond: 0, totalBytes: 0, duration: 0 });
     setStatusMessage("Packets cleared");
   };
+
+  const handleImportPcap = useCallback((imported: CapturedPacket[]) => {
+    setPackets((prev) => [...prev, ...imported]);
+    setStatusMessage(`Imported ${imported.length} packets`);
+  }, [setStatusMessage]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0e17]">
@@ -230,6 +237,7 @@ function AppInner() {
               setIsCapturing={setIsCapturing}
               onClearPackets={handleClearPackets}
               onSaved={loadSavedData}
+              onImportPcap={handleImportPcap}
               setStatusMessage={setStatusMessage}
             />
           )}
@@ -286,6 +294,9 @@ function AppInner() {
               selectedPacket={selectedPacket}
               setStatusMessage={setStatusMessage}
             />
+          )}
+          {view === "stats" && (
+            <StatsView packetCount={packets.length} />
           )}
         </main>
       </div>

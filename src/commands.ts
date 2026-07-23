@@ -11,6 +11,7 @@ import type {
   FuzzConfig,
   FuzzResult,
   HexDiffEntry,
+  CaptureStatsData,
 } from "./types";
 
 export const commands = {
@@ -59,4 +60,9 @@ export const commands = {
 
   computeHexDiff: (original: number[], modified: number[]) =>
     invoke<HexDiffEntry[]>("compute_hex_diff", { original, modified }),
+
+  importPcap: (path: string) =>
+    invoke<CapturedPacket[]>("import_pcap", { path }),
+  getCaptureStats: () =>
+    invoke<CaptureStatsData>("get_capture_stats"),
 };
