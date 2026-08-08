@@ -321,7 +321,11 @@ impl CaptureEngine {
         StatsMaps {
             protocols: self.protocols.lock().map(|g| g.clone()).unwrap_or_default(),
             sources: self.sources.lock().map(|g| g.clone()).unwrap_or_default(),
-            destinations: self.destinations.lock().map(|g| g.clone()).unwrap_or_default(),
+            destinations: self
+                .destinations
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default(),
             timeline: self.timeline.lock().map(|g| g.clone()).unwrap_or_default(),
         }
     }
@@ -685,7 +689,10 @@ mod tests {
         assert_eq!(maps.sources.get("10.0.0.1:1234"), Some(&2));
         assert_eq!(maps.sources.get("10.0.0.3:4321"), Some(&1));
         assert_eq!(maps.destinations.get("10.0.0.2:80"), Some(&3));
-        assert_eq!(maps.timeline.get("10:05").map(|(c, b)| (*c, *b)), Some((3, 300)));
+        assert_eq!(
+            maps.timeline.get("10:05").map(|(c, b)| (*c, *b)),
+            Some((3, 300))
+        );
     }
 
     #[test]
@@ -724,7 +731,10 @@ mod tests {
             engine.store_packet(p.clone());
         }
         let maps = engine.stats_maps();
-        assert_eq!(maps.protocols.get("TCP").map(|(c, _)| *c), Some(MAX_STORED_PACKETS * 2));
+        assert_eq!(
+            maps.protocols.get("TCP").map(|(c, _)| *c),
+            Some(MAX_STORED_PACKETS * 2)
+        );
         assert_eq!(engine.totals().0, MAX_STORED_PACKETS * 2);
     }
 }
