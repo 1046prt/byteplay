@@ -463,72 +463,10 @@ pub struct CaptureStatsData {
 #[tauri::command]
 fn get_capture_stats(state: State<'_, AppState>) -> Result<CaptureStatsData, String> {
     let (total_packets, total_bytes) = state.capture_engine.totals();
-    let packets = state.capture_engine.get_packets();
+    let maps = state.capture_engine.stats_maps();
 
-    let mut proto_map: std::collections::HashMap<String, (usize, usize)> =
-        std::collections::HashMap::new();
-    let mut src_map: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut dst_map: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-
-    for p in &packets {
-        let proto = if p.tcp.is_some() {
-            "TCP".to_string()
-        } else if p.udp.is_some() {
-            "UDP".to_string()
-        } else if let Some(ref ip4) = p.ipv4 {
-            ip4.protocol.clone()
-        } else if let Some(ref ip6) = p.ipv6 {
-            ip6.next_header.clone()
-        } else {
-            "Other".to_string()
-        };
-
-        let entry = proto_map.entry(proto).or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 += p.frame_length;
-
-        let src_ip = p
-            .ipv4
-            .as_ref()
-            .map(|ip| ip.src_ip.clone())
-            .or_else(|| p.ipv6.as_ref().map(|ip| ip.src_ip.clone()))
-            .unwrap_or_default();
-        let src_port = p
-            .tcp
-            .as_ref()
-            .map(|t| t.src_port)
-            .or_else(|| p.udp.as_ref().map(|u| u.src_port));
-        let src_ep = if let Some(port) = src_port {
-            format!("{}:{}", src_ip, port)
-        } else {
-            src_ip
-        };
-        if !src_ep.is_empty() {
-            *src_map.entry(src_ep).or_insert(0) += 1;
-        }
-
-        let dst_ip = p
-            .ipv4
-            .as_ref()
-            .map(|ip| ip.dst_ip.clone())
-            .or_else(|| p.ipv6.as_ref().map(|ip| ip.dst_ip.clone()))
-            .unwrap_or_default();
-        let dst_port = p
-            .tcp
-            .as_ref()
-            .map(|t| t.dst_port)
-            .or_else(|| p.udp.as_ref().map(|u| u.dst_port));
-        let dst_ep = if let Some(port) = dst_port {
-            format!("{}:{}", dst_ip, port)
-        } else {
-            dst_ip
-        };
-        if !dst_ep.is_empty() {
-            *dst_map.entry(dst_ep).or_insert(0) += 1;
-        }
-    }
-
-    let mut protocols: Vec<ProtocolStat> = proto_map
+    let mut protocols: Vec<ProtocolStat> = maps
+        .protocols
         .into_iter()
         .map(|(protocol, (count, bytes))| ProtocolStat {
             protocol,
@@ -538,44 +476,31 @@ fn get_capture_stats(state: State<'_, AppState>) -> Result<CaptureStatsData, Str
         .collect();
     protocols.sort_by_key(|p| std::cmp::Reverse(p.count));
 
-    let mut top_sources: Vec<EndpointStat> = src_map
+    let mut top_sources: Vec<EndpointStat> = maps
+        .sources
         .into_iter()
         .map(|(endpoint, count)| EndpointStat { endpoint, count })
         .collect();
     top_sources.sort_by_key(|e| std::cmp::Reverse(e.count));
     top_sources.truncate(20);
 
-    let mut top_destinations: Vec<EndpointStat> = dst_map
+    let mut top_destinations: Vec<EndpointStat> = maps
+        .destinations
         .into_iter()
         .map(|(endpoint, count)| EndpointStat { endpoint, count })
         .collect();
     top_destinations.sort_by_key(|e| std::cmp::Reverse(e.count));
     top_destinations.truncate(20);
 
-    let timeline = if packets.is_empty() {
-        Vec::new()
-    } else {
-        let mut buckets: std::collections::BTreeMap<String, (usize, usize)> =
-            std::collections::BTreeMap::new();
-        for p in &packets {
-            let minute = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&p.timestamp) {
-                dt.format("%H:%M").to_string()
-            } else {
-                "??".to_string()
-            };
-            let entry = buckets.entry(minute).or_insert((0, 0));
-            entry.0 += 1;
-            entry.1 += p.frame_length;
-        }
-        buckets
-            .into_iter()
-            .map(|(ts, (count, bytes))| TimeBucket {
-                timestamp: ts,
-                count,
-                bytes,
-            })
-            .collect()
-    };
+    let timeline: Vec<TimeBucket> = maps
+        .timeline
+        .into_iter()
+        .map(|(ts, (count, bytes))| TimeBucket {
+            timestamp: ts,
+            count,
+            bytes,
+        })
+        .collect();
 
     Ok(CaptureStatsData {
         total_packets,

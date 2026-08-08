@@ -7,6 +7,15 @@ on:
 permissions:
   contents: write
 
+env:
+  WINDOWS_SIGNING_CERT: ${{ secrets.WINDOWS_SIGNING_CERT }}
+  WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+  APPLE_ID: ${{ secrets.APPLE_ID }}
+  APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
 jobs:
   release:
     name: Build (${{ matrix.os }})
@@ -15,11 +24,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: byteplay-linux
+            bundles: deb,appimage
           - os: windows-latest
-            artifact: byteplay-windows
+            bundles: msi,nsi
           - os: macos-latest
-            artifact: byteplay-macos
+            bundles: app,dmg
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -39,29 +48,61 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libgtk-3-dev libpcap-dev
 
       - name: Download Npcap SDK (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          curl -fsSL -o npcap-sdk.zip https://npcap.com/dist/npcap-sdk-1.13.zip
-          tar -xf npcap-sdk.zip
-          move npcap-sdk-1.13 npcap-sdk
+          $sdkDir = Join-Path $env:GITHUB_WORKSPACE 'npcap-sdk'
+          $zip = Join-Path $env:RUNNER_TEMP 'npcap-sdk.zip'
+          Invoke-WebRequest -Uri 'https://npcap.com/dist/npcap-sdk-1.13.zip' -OutFile $zip
+          Expand-Archive -LiteralPath $zip -DestinationPath $sdkDir
+          "LIBPCAP_LIBDIR=$(Join-Path $sdkDir 'Lib\x64')" | Add-Content -Path $env:GITHUB_ENV
 
-      - name: Build frontend
-        run: npm ci && npm run build
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Import Windows signing certificate
+        if: runner.os == 'Windows' && env.WINDOWS_SIGNING_CERT != ''
+        shell: pwsh
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'signing-cert.pfx'
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERT))
+          "WINDOWS_SIGNING_CERT_PATH=$certPath" | Add-Content -Path $env:GITHUB_ENV
+
+      - name: Import Apple Developer certificate
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        shell: bash
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/apple-cert.p12"
+          KEYCHAIN="$RUNNER_TEMP/apple-build.keychain"
+          security create-keychain -p "byteplay-ci" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "byteplay-ci" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/apple-cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "byteplay-ci" "$KEYCHAIN"
 
       - name: Build Tauri app
-        run: npm run tauri build -- --no-bundle
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
 
-      - name: Create release bundle
-        run: npm run tauri build
+      - name: Sign Windows artifacts
+        if: runner.os == 'Windows' && env.WINDOWS_SIGNING_CERT != ''
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter 'signtool.exe' -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe not found' }
+          Get-ChildItem 'src-tauri\target\release\bundle' -Recurse -Include *.exe,*.msi | ForEach-Object {
+            & $signtool.FullName sign /fd SHA256 /f $env:WINDOWS_SIGNING_CERT_PATH /p $env:WINDOWS_SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 /v $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $($_.FullName)" }
+          }
 
       - name: Collect artifacts
         shell: bash
         run: |
           mkdir -p artifacts
-          find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.tar.gz" \) -exec cp {} artifacts/ \;
+          find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" \) -exec cp {} artifacts/ \;
           ls -la artifacts/
 
       - name: Upload to release

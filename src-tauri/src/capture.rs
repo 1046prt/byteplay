@@ -1,5 +1,6 @@
 use log::{error, info, warn};
 use pnet::datalink::{self, Channel, Config};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -41,12 +42,23 @@ pub struct PollBatch {
     pub dropped: u64,
 }
 
+pub struct StatsMaps {
+    pub protocols: HashMap<String, (usize, usize)>,
+    pub sources: HashMap<String, usize>,
+    pub destinations: HashMap<String, usize>,
+    pub timeline: BTreeMap<String, (usize, usize)>,
+}
+
 pub struct CaptureEngine {
     running: Arc<AtomicBool>,
     packets: Arc<Mutex<Vec<CapturedPacket>>>,
     next_seq: AtomicUsize,
     total_packets: AtomicUsize,
     total_bytes: AtomicUsize,
+    protocols: Arc<Mutex<HashMap<String, (usize, usize)>>>,
+    sources: Arc<Mutex<HashMap<String, usize>>>,
+    destinations: Arc<Mutex<HashMap<String, usize>>>,
+    timeline: Arc<Mutex<BTreeMap<String, (usize, usize)>>>,
 }
 
 impl CaptureEngine {
@@ -57,6 +69,10 @@ impl CaptureEngine {
             next_seq: AtomicUsize::new(0),
             total_packets: AtomicUsize::new(0),
             total_bytes: AtomicUsize::new(0),
+            protocols: Arc::new(Mutex::new(HashMap::new())),
+            sources: Arc::new(Mutex::new(HashMap::new())),
+            destinations: Arc::new(Mutex::new(HashMap::new())),
+            timeline: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -210,6 +226,7 @@ impl CaptureEngine {
         self.total_packets.fetch_add(1, Ordering::SeqCst);
         self.total_bytes
             .fetch_add(packet.frame_length, Ordering::SeqCst);
+        self.record_stats(&packet);
 
         let mut pkts = match self.packets.lock() {
             Ok(guard) => guard,
@@ -260,16 +277,6 @@ impl CaptureEngine {
         }
     }
 
-    pub fn get_packets(&self) -> Vec<CapturedPacket> {
-        match self.packets.lock() {
-            Ok(pkts) => pkts.clone(),
-            Err(poisoned) => {
-                warn!("Mutex poisoned, recovering");
-                poisoned.into_inner().clone()
-            }
-        }
-    }
-
     pub fn get_packet_by_id(&self, id: &str) -> Option<CapturedPacket> {
         let pkts = match self.packets.lock() {
             Ok(guard) => guard,
@@ -292,7 +299,123 @@ impl CaptureEngine {
                 poisoned.into_inner().clear();
             }
         }
+        match self.protocols.lock() {
+            Ok(mut m) => m.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
+        match self.sources.lock() {
+            Ok(mut m) => m.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
+        match self.destinations.lock() {
+            Ok(mut m) => m.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
+        match self.timeline.lock() {
+            Ok(mut m) => m.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
     }
+
+    pub fn stats_maps(&self) -> StatsMaps {
+        StatsMaps {
+            protocols: self.protocols.lock().map(|g| g.clone()).unwrap_or_default(),
+            sources: self.sources.lock().map(|g| g.clone()).unwrap_or_default(),
+            destinations: self.destinations.lock().map(|g| g.clone()).unwrap_or_default(),
+            timeline: self.timeline.lock().map(|g| g.clone()).unwrap_or_default(),
+        }
+    }
+
+    fn record_stats(&self, packet: &CapturedPacket) {
+        let protocol = protocol_label(packet);
+        if let Ok(mut map) = self.protocols.lock() {
+            let entry = map.entry(protocol).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 += packet.frame_length;
+        }
+
+        let src_ep = endpoint_label(packet, true);
+        if !src_ep.is_empty() {
+            if let Ok(mut map) = self.sources.lock() {
+                *map.entry(src_ep).or_insert(0) += 1;
+            }
+        }
+
+        let dst_ep = endpoint_label(packet, false);
+        if !dst_ep.is_empty() {
+            if let Ok(mut map) = self.destinations.lock() {
+                *map.entry(dst_ep).or_insert(0) += 1;
+            }
+        }
+
+        let minute = minute_bucket(&packet.timestamp);
+        if let Ok(mut map) = self.timeline.lock() {
+            let entry = map.entry(minute).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 += packet.frame_length;
+        }
+    }
+}
+
+fn protocol_label(packet: &CapturedPacket) -> String {
+    if packet.tcp.is_some() {
+        "TCP".to_string()
+    } else if packet.udp.is_some() {
+        "UDP".to_string()
+    } else if let Some(ref ip4) = packet.ipv4 {
+        ip4.protocol.clone()
+    } else if let Some(ref ip6) = packet.ipv6 {
+        ip6.next_header.clone()
+    } else {
+        "Other".to_string()
+    }
+}
+
+fn endpoint_label(packet: &CapturedPacket, source: bool) -> String {
+    let ip = if source {
+        packet
+            .ipv4
+            .as_ref()
+            .map(|ip| ip.src_ip.clone())
+            .or_else(|| packet.ipv6.as_ref().map(|ip| ip.src_ip.clone()))
+            .unwrap_or_default()
+    } else {
+        packet
+            .ipv4
+            .as_ref()
+            .map(|ip| ip.dst_ip.clone())
+            .or_else(|| packet.ipv6.as_ref().map(|ip| ip.dst_ip.clone()))
+            .unwrap_or_default()
+    };
+
+    if ip.is_empty() {
+        return String::new();
+    }
+
+    let port = if source {
+        packet
+            .tcp
+            .as_ref()
+            .map(|t| t.src_port)
+            .or_else(|| packet.udp.as_ref().map(|u| u.src_port))
+    } else {
+        packet
+            .tcp
+            .as_ref()
+            .map(|t| t.dst_port)
+            .or_else(|| packet.udp.as_ref().map(|u| u.dst_port))
+    };
+
+    match port {
+        Some(port) => format!("{}:{}", ip, port),
+        None => ip,
+    }
+}
+
+fn minute_bucket(timestamp: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(timestamp)
+        .map(|dt| dt.format("%H:%M").to_string())
+        .unwrap_or_else(|_| "??".to_string())
 }
 
 fn matches_filter(packet: &crate::parser::ParsedPacket, filter: &str) -> bool {
@@ -505,5 +628,103 @@ mod tests {
         );
         assert_eq!(engine.totals().0, MAX_STORED_PACKETS + 100);
         assert_eq!(engine.totals().1, MAX_STORED_PACKETS + 100);
+    }
+
+    fn tcp_packet(src: &str, dst: &str, src_port: u16, dst_port: u16) -> CapturedPacket {
+        let mut p = packet(0);
+        p.timestamp = "2026-01-01T10:05:00Z".to_string();
+        p.frame_length = 100;
+        p.ipv4 = Some(crate::parser::IPv4Info {
+            src_ip: src.to_string(),
+            dst_ip: dst.to_string(),
+            version: 4,
+            ihl: 5,
+            dscp: 0,
+            ecn: 0,
+            total_length: 0,
+            identification: 0,
+            flags: 0,
+            fragment_offset: 0,
+            ttl: 64,
+            protocol: "TCP".to_string(),
+            checksum: 0,
+        });
+        p.tcp = Some(crate::parser::TcpInfo {
+            src_port,
+            dst_port,
+            sequence: 0,
+            ack_number: 0,
+            data_offset: 0,
+            flags: crate::parser::TcpFlags {
+                syn: false,
+                ack: false,
+                fin: false,
+                rst: false,
+                psh: false,
+                urg: false,
+            },
+            window: 0,
+            checksum: 0,
+            urgent_pointer: 0,
+        });
+        p
+    }
+
+    #[test]
+    fn stats_counters_accumulate_per_packet() {
+        let engine = CaptureEngine::new();
+        engine.store_packet(tcp_packet("10.0.0.1", "10.0.0.2", 1234, 80));
+        engine.store_packet(tcp_packet("10.0.0.1", "10.0.0.2", 1234, 80));
+        engine.store_packet(tcp_packet("10.0.0.3", "10.0.0.2", 4321, 80));
+        engine.store_packet(packet(0));
+
+        let maps = engine.stats_maps();
+        assert_eq!(maps.protocols.get("TCP").map(|(c, _)| *c), Some(3));
+        assert_eq!(maps.protocols.get("TCP").map(|(_, b)| *b), Some(300));
+        assert_eq!(maps.protocols.get("Other").map(|(c, _)| *c), Some(1));
+        assert_eq!(maps.sources.get("10.0.0.1:1234"), Some(&2));
+        assert_eq!(maps.sources.get("10.0.0.3:4321"), Some(&1));
+        assert_eq!(maps.destinations.get("10.0.0.2:80"), Some(&3));
+        assert_eq!(maps.timeline.get("10:05").map(|(c, b)| (*c, *b)), Some((3, 300)));
+    }
+
+    #[test]
+    fn stats_ignore_unparsed_packets() {
+        let engine = CaptureEngine::new();
+        let mut p = packet(0);
+        p.timestamp = "not-a-timestamp".to_string();
+        p.frame_length = 50;
+        engine.store_packet(p);
+
+        let maps = engine.stats_maps();
+        assert_eq!(maps.protocols.get("Other").map(|(c, _)| *c), Some(1));
+        assert_eq!(maps.timeline.get("??").map(|(c, _)| *c), Some(1));
+        assert!(maps.sources.is_empty());
+        assert!(maps.destinations.is_empty());
+    }
+
+    #[test]
+    fn stats_reset_on_clear() {
+        let engine = CaptureEngine::new();
+        engine.store_packet(tcp_packet("10.0.0.1", "10.0.0.2", 1234, 80));
+        engine.clear_packets();
+        let maps = engine.stats_maps();
+        assert!(maps.protocols.is_empty());
+        assert!(maps.sources.is_empty());
+        assert!(maps.destinations.is_empty());
+        assert!(maps.timeline.is_empty());
+        assert_eq!(engine.totals(), (0, 0));
+    }
+
+    #[test]
+    fn stats_continue_across_ring_buffer_eviction() {
+        let engine = CaptureEngine::new();
+        let p = tcp_packet("10.0.0.1", "10.0.0.2", 1234, 80);
+        for _ in 0..(MAX_STORED_PACKETS * 2) {
+            engine.store_packet(p.clone());
+        }
+        let maps = engine.stats_maps();
+        assert_eq!(maps.protocols.get("TCP").map(|(c, _)| *c), Some(MAX_STORED_PACKETS * 2));
+        assert_eq!(engine.totals().0, MAX_STORED_PACKETS * 2);
     }
 }
