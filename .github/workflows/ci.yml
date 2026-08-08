@@ -44,6 +44,10 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Build frontend
+        working-directory: .
+        run: npm ci && npm run build
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
