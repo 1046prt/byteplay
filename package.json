@@ -1,7 +1,7 @@
 {
   "name": "byteplay",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Multi-platform network packet analyzer and replayer — capture, edit, and replay raw TCP/UDP packets",
   "license": "MIT",
   "keywords": [
