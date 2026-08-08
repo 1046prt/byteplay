@@ -61,19 +61,17 @@ export function PacketDetail({ packet }: PacketDetailProps) {
               }
             }}
             className={`px-3 py-1 text-xs rounded-md capitalize transition-colors ${
-              tab === t
-                ? "bg-blue-600/20 text-blue-400"
-                : "text-gray-500 hover:text-gray-300"
+              tab === t ? "bg-blue-600/20 text-blue-400" : "text-gray-500 hover:text-gray-300"
             }`}
           >
             {t === "diff" ? (
               <span className="flex items-center gap-1">
                 diff
-                {diffEntries && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                )}
+                {diffEntries && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
               </span>
-            ) : t}
+            ) : (
+              t
+            )}
           </button>
         ))}
         <div className="flex-1" />
@@ -95,9 +93,7 @@ export function PacketDetail({ packet }: PacketDetailProps) {
             onCancel={handleCancelEdit}
           />
         )}
-        {tab === "raw" && (
-          <HexViewer bytes={packet.raw_bytes} />
-        )}
+        {tab === "raw" && <HexViewer bytes={packet.raw_bytes} />}
         {tab === "diff" && (
           <DiffView
             original={packet.payload}
@@ -132,7 +128,10 @@ function HeadersView({ packet }: { packet: CapturedPacket }) {
           <HeaderField label="TTL" value={String(packet.ipv4.ttl)} />
           <HeaderField label="Protocol" value={packet.ipv4.protocol} />
           <HeaderField label="Total Length" value={String(packet.ipv4.total_length)} />
-          <HeaderField label="Identification" value={`0x${packet.ipv4.identification.toString(16)}`} />
+          <HeaderField
+            label="Identification"
+            value={`0x${packet.ipv4.identification.toString(16)}`}
+          />
           <HeaderField label="Flags" value={`0x${packet.ipv4.flags.toString(16)}`} />
           <HeaderField label="Checksum" value={`0x${packet.ipv4.checksum.toString(16)}`} />
         </HeaderSection>
@@ -156,7 +155,10 @@ function HeadersView({ packet }: { packet: CapturedPacket }) {
           <HeaderField label="Dest Port" value={String(packet.tcp.dst_port)} />
           <HeaderField label="Sequence" value={String(packet.tcp.sequence)} />
           <HeaderField label="Ack Number" value={String(packet.tcp.ack_number)} />
-          <HeaderField label="Data Offset" value={`${packet.tcp.data_offset} (${packet.tcp.data_offset * 4} bytes)`} />
+          <HeaderField
+            label="Data Offset"
+            value={`${packet.tcp.data_offset} (${packet.tcp.data_offset * 4} bytes)`}
+          />
           <HeaderField label="Window" value={String(packet.tcp.window)} />
           <HeaderField label="Checksum" value={`0x${packet.tcp.checksum.toString(16)}`} />
           <HeaderField label="Flags" value={formatTcpFlags(packet.tcp.flags)} />
@@ -174,9 +176,7 @@ function HeadersView({ packet }: { packet: CapturedPacket }) {
 
       {packet.payload.length > 0 && (
         <HeaderSection title="Payload">
-          <div className="text-xs text-gray-400 font-mono break-all">
-            {packet.payload_hex}
-          </div>
+          <div className="text-xs text-gray-400 font-mono break-all">{packet.payload_hex}</div>
           <div className="text-xs text-gray-500 font-mono mt-1 whitespace-pre-wrap break-all">
             {packet.payload_ascii}
           </div>
@@ -186,18 +186,10 @@ function HeadersView({ packet }: { packet: CapturedPacket }) {
   );
 }
 
-function HeaderSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function HeaderSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="panel p-3">
-      <h4 className="text-xs font-semibold text-gray-300 mb-2 uppercase tracking-wide">
-        {title}
-      </h4>
+      <h4 className="text-xs font-semibold text-gray-300 mb-2 uppercase tracking-wide">{title}</h4>
       <div className="space-y-1">{children}</div>
     </div>
   );
@@ -344,10 +336,8 @@ function DiffView({
       origBytes.push({ val: ob, changed: entry.changed });
       modBytes.push({ val: mb, changed: entry.changed });
 
-      origAscii += entry.changed ? "·" : (ob >= 0x20 && ob <= 0x7e ? String.fromCharCode(ob) : ".");
-      modAscii += entry.changed
-        ? (mb >= 0x20 && mb <= 0x7e ? String.fromCharCode(mb) : "·")
-        : "·";
+      origAscii += entry.changed ? "·" : ob >= 0x20 && ob <= 0x7e ? String.fromCharCode(ob) : ".";
+      modAscii += entry.changed ? (mb >= 0x20 && mb <= 0x7e ? String.fromCharCode(mb) : "·") : "·";
     }
     lines.push({ offset: i, origBytes, modBytes, origAscii, modAscii });
   }
@@ -359,7 +349,9 @@ function DiffView({
         <span className="text-gray-600">→</span>
         <span className="text-gray-400">{modifiedLabel}</span>
         <div className="flex-1" />
-        <span className="text-amber-400 font-mono">{changedCount} byte{changedCount !== 1 ? "s" : ""} changed</span>
+        <span className="text-amber-400 font-mono">
+          {changedCount} byte{changedCount !== 1 ? "s" : ""} changed
+        </span>
       </div>
 
       <div className="panel p-3 font-mono text-[11px] leading-5">
@@ -393,10 +385,14 @@ function DiffView({
               ))}
               {line.origBytes.length < BYTES_PER_LINE &&
                 Array.from({ length: BYTES_PER_LINE - line.origBytes.length }, (_, i) => (
-                  <span key={`pad-${i}`} className="w-[22px] text-center text-gray-800">·</span>
+                  <span key={`pad-${i}`} className="w-[22px] text-center text-gray-800">
+                    ·
+                  </span>
                 ))}
             </span>
-            <span className="ml-2 w-[130px] text-gray-500 shrink-0 whitespace-pre">{line.origAscii}</span>
+            <span className="ml-2 w-[130px] text-gray-500 shrink-0 whitespace-pre">
+              {line.origAscii}
+            </span>
           </div>
         ))}
 
@@ -420,10 +416,14 @@ function DiffView({
               ))}
               {line.modBytes.length < BYTES_PER_LINE &&
                 Array.from({ length: BYTES_PER_LINE - line.modBytes.length }, (_, i) => (
-                  <span key={`pad-${i}`} className="w-[22px] text-center text-gray-800">·</span>
+                  <span key={`pad-${i}`} className="w-[22px] text-center text-gray-800">
+                    ·
+                  </span>
                 ))}
             </span>
-            <span className="ml-2 w-[130px] text-gray-500 shrink-0 whitespace-pre">{line.modAscii}</span>
+            <span className="ml-2 w-[130px] text-gray-500 shrink-0 whitespace-pre">
+              {line.modAscii}
+            </span>
           </div>
         ))}
       </div>

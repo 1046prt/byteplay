@@ -1,3 +1,5 @@
 [target.x86_64-pc-windows-msvc]
-linker = "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\link.exe"
-rustflags = ["-L", "C:\\Users\\Prakash Raj\\AppData\\Local\\Temp\\npcap-sdk\\Lib\\x64"]
+linker = "link.exe"
+# Npcap SDK must be present at src-tauri/npcap-sdk (download from
+# https://npcap.com/dist/npcap-sdk-1.13.zip and extract) for pnet linking.
+rustflags = ["-L", "npcap-sdk/Lib/x64"]

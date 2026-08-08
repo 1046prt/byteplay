@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { commands } from "../commands";
 import {
   DEFAULT_PORT,
@@ -7,7 +8,7 @@ import {
   DEFAULT_FUZZ_MUTATION_RATE,
 } from "../constants";
 import { useToast } from "./Toast";
-import type { CapturedPacket, FuzzConfig, FuzzResult } from "../types";
+import type { CapturedPacket, FuzzConfig, FuzzProgress, FuzzResult } from "../types";
 import { HexViewer } from "./HexViewer";
 
 interface FuzzerViewProps {
@@ -27,22 +28,48 @@ export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
   const [useCustom, setUseCustom] = useState(false);
 
   const [results, setResults] = useState<FuzzResult[] | null>(null);
-  const [streamResults, setStreamResults] = useState<FuzzResult[]>([]);
   const [running, setRunning] = useState(false);
   const [selectedResult, setSelectedResult] = useState<FuzzResult | null>(null);
   const [filterMode, setFilterMode] = useState<"all" | "errors" | "responses">("all");
-  const streamRef = useRef<FuzzResult[]>([]);
+  const [fuzzProgress, setFuzzProgress] = useState<FuzzProgress | null>(null);
   const { toast } = useToast();
 
   const iterCount = parseInt(iterations, 10) || DEFAULT_FUZZ_ITERATIONS;
-  const progress = results ? 100 : running ? Math.min((streamRef.current.length / iterCount) * 100, 99) : 0;
+  const progress = results
+    ? 100
+    : running && fuzzProgress && fuzzProgress.total > 0
+      ? (fuzzProgress.done / fuzzProgress.total) * 100
+      : 0;
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    listen<FuzzProgress>("fuzz-progress", (event) => {
+      if (!disposed) setFuzzProgress(event.payload);
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const handleCancel = async () => {
+    try {
+      await commands.cancelFuzzer();
+      toast("Cancellation requested — fuzzer will stop at the next iteration", "info");
+    } catch (e) {
+      toast(`Cancel failed: ${e}`, "error");
+    }
+  };
 
   const handleFuzz = async () => {
     setRunning(true);
     setResults(null);
-    setStreamResults([]);
     setSelectedResult(null);
-    streamRef.current = [];
+    setFuzzProgress(null);
 
     try {
       const basePayload = useCustom
@@ -70,7 +97,9 @@ export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
       setResults(res);
 
       const crashes = res.filter((r) => !r.replay_result.success).length;
-      const responses = res.filter((r) => r.replay_result.success && r.replay_result.response).length;
+      const responses = res.filter(
+        (r) => r.replay_result.success && r.replay_result.response
+      ).length;
       toast(
         `Fuzz: ${crashes} errors, ${responses} responses out of ${res.length}`,
         crashes === 0 ? "success" : "info"
@@ -81,8 +110,8 @@ export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
     setRunning(false);
   };
 
-  const displayResults = results || streamResults;
-  const filteredResults = displayResults.filter((r) => {
+  const displayResults = results;
+  const filteredResults = (displayResults || []).filter((r) => {
     if (filterMode === "errors") return !r.replay_result.success;
     if (filterMode === "responses") return r.replay_result.success && !!r.replay_result.response;
     return true;
@@ -202,6 +231,14 @@ export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
               `⚡ Run ${iterCount} Fuzz Iterations`
             )}
           </button>
+          {running && (
+            <button
+              onClick={handleCancel}
+              className="btn text-xs w-full bg-red-600/15 border border-red-600/40 text-red-400 hover:bg-red-600/25"
+            >
+              Cancel Fuzz
+            </button>
+          )}
 
           {(running || results) && (
             <div className="space-y-1">
@@ -212,7 +249,13 @@ export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
                 />
               </div>
               <div className="flex justify-between text-[10px] text-gray-500">
-                <span>{results ? "Complete" : `${streamRef.current.length} / ${iterCount}`}</span>
+                <span>
+                  {results
+                    ? "Complete"
+                    : fuzzProgress
+                      ? `${fuzzProgress.done} / ${fuzzProgress.total}`
+                      : "Starting..."}
+                </span>
                 <span>{Math.round(progress)}%</span>
               </div>
             </div>
@@ -231,9 +274,7 @@ export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
                     <span className="text-gray-600">Status: </span>
                     <span
                       className={
-                        selectedResult.replay_result.success
-                          ? "text-green-400"
-                          : "text-red-400"
+                        selectedResult.replay_result.success ? "text-green-400" : "text-red-400"
                       }
                     >
                       {selectedResult.replay_result.success ? "OK" : "Error"}
@@ -247,9 +288,7 @@ export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
                   </div>
                   <div>
                     <span className="text-gray-600">Bytes sent: </span>
-                    <span className="text-gray-300">
-                      {selectedResult.replay_result.bytes_sent}
-                    </span>
+                    <span className="text-gray-300">{selectedResult.replay_result.bytes_sent}</span>
                   </div>
                   {selectedResult.replay_result.error && (
                     <div className="text-red-400 font-mono text-[10px]">
@@ -339,24 +378,16 @@ export function FuzzerView({ selectedPacket }: FuzzerViewProps) {
                     !r.replay_result.success
                       ? "border-l-2 border-l-red-500"
                       : r.replay_result.response
-                      ? "border-l-2 border-l-green-500"
-                      : ""
+                        ? "border-l-2 border-l-green-500"
+                        : ""
                   }`}
                 >
                   <span className="w-[40px] text-gray-600">#{r.iteration}</span>
-                  <span
-                    className={
-                      r.replay_result.success ? "text-green-400" : "text-red-400"
-                    }
-                  >
+                  <span className={r.replay_result.success ? "text-green-400" : "text-red-400"}>
                     {r.replay_result.success ? "OK" : "ERR"}
                   </span>
-                  <span className="text-gray-500">
-                    {r.replay_result.duration_ms}ms
-                  </span>
-                  <span className="text-gray-600">
-                    {r.mutations_applied.length} muts
-                  </span>
+                  <span className="text-gray-500">{r.replay_result.duration_ms}ms</span>
+                  <span className="text-gray-600">{r.mutations_applied.length} muts</span>
                   <span className="text-gray-700 truncate flex-1">
                     {r.replay_result.error || ""}
                   </span>

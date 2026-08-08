@@ -1,6 +1,6 @@
 use log::{error, info, warn};
 use pnet::datalink::{self, Channel, Config};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -18,6 +18,7 @@ pub struct CaptureConfig {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CapturedPacket {
     pub id: String,
+    pub seq: u64,
     pub timestamp: String,
     pub interface: String,
     pub frame_length: usize,
@@ -33,9 +34,19 @@ pub struct CapturedPacket {
     pub capture_index: usize,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PollBatch {
+    pub packets: Vec<CapturedPacket>,
+    pub latest_seq: u64,
+    pub dropped: u64,
+}
+
 pub struct CaptureEngine {
     running: Arc<AtomicBool>,
     packets: Arc<Mutex<Vec<CapturedPacket>>>,
+    next_seq: AtomicUsize,
+    total_packets: AtomicUsize,
+    total_bytes: AtomicUsize,
 }
 
 impl CaptureEngine {
@@ -43,6 +54,9 @@ impl CaptureEngine {
         Self {
             running: Arc::new(AtomicBool::new(false)),
             packets: Arc::new(Mutex::new(Vec::new())),
+            next_seq: AtomicUsize::new(0),
+            total_packets: AtomicUsize::new(0),
+            total_bytes: AtomicUsize::new(0),
         }
     }
 
@@ -86,10 +100,12 @@ impl CaptureEngine {
             .find(|i| i.name == config.interface_name)
             .ok_or_else(|| format!("Interface '{}' not found", config.interface_name))?;
 
-        let mut link_config = Config::default();
-        link_config.read_timeout = Some(std::time::Duration::from_millis(100));
+        let link_config = Config {
+            read_timeout: Some(std::time::Duration::from_millis(100)),
+            ..Config::default()
+        };
 
-        let mut rx = match datalink::channel(&interface, link_config)
+        let mut rx = match datalink::channel(interface, link_config)
             .map_err(|e| format!("Failed to open channel on {}: {}", config.interface_name, e))?
         {
             Channel::Ethernet(_, rx) => rx,
@@ -132,6 +148,7 @@ impl CaptureEngine {
                         matched += 1;
                         let captured = CapturedPacket {
                             id: parsed.id,
+                            seq: 0,
                             timestamp: parsed.timestamp,
                             interface: parsed.interface,
                             frame_length: parsed.frame_length,
@@ -188,7 +205,12 @@ impl CaptureEngine {
         self.running.load(Ordering::SeqCst)
     }
 
-    pub fn store_packet(&self, packet: CapturedPacket) {
+    pub fn store_packet(&self, mut packet: CapturedPacket) {
+        packet.seq = self.next_seq.fetch_add(1, Ordering::SeqCst) as u64;
+        self.total_packets.fetch_add(1, Ordering::SeqCst);
+        self.total_bytes
+            .fetch_add(packet.frame_length, Ordering::SeqCst);
+
         let mut pkts = match self.packets.lock() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -200,6 +222,42 @@ impl CaptureEngine {
             pkts.drain(..MAX_STORED_PACKETS / 10);
         }
         pkts.push(packet);
+    }
+
+    pub fn totals(&self) -> (usize, usize) {
+        (
+            self.total_packets.load(Ordering::SeqCst),
+            self.total_bytes.load(Ordering::SeqCst),
+        )
+    }
+
+    pub fn poll_since(&self, since: u64) -> PollBatch {
+        let pkts = match self.packets.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
+
+        let latest_seq = pkts.last().map(|p| p.seq).unwrap_or(since);
+        let start = if since == 0 {
+            0
+        } else {
+            pkts.partition_point(|p| p.seq <= since)
+        };
+
+        let dropped = pkts
+            .first()
+            .filter(|p| p.seq > since)
+            .map(|p| p.seq.saturating_sub(since + 1))
+            .unwrap_or(0);
+
+        PollBatch {
+            packets: pkts[start..].to_vec(),
+            latest_seq: latest_seq.max(since),
+            dropped,
+        }
     }
 
     pub fn get_packets(&self) -> Vec<CapturedPacket> {
@@ -224,6 +282,9 @@ impl CaptureEngine {
     }
 
     pub fn clear_packets(&self) {
+        self.next_seq.store(0, Ordering::SeqCst);
+        self.total_packets.store(0, Ordering::SeqCst);
+        self.total_bytes.store(0, Ordering::SeqCst);
         match self.packets.lock() {
             Ok(mut pkts) => pkts.clear(),
             Err(poisoned) => {
@@ -332,4 +393,117 @@ fn matches_filter(packet: &crate::parser::ParsedPacket, filter: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn packet(seq: u64) -> CapturedPacket {
+        CapturedPacket {
+            id: format!("p{}", seq),
+            seq,
+            timestamp: String::new(),
+            interface: "test".into(),
+            frame_length: 0,
+            ethernet: None,
+            ipv4: None,
+            ipv6: None,
+            tcp: None,
+            udp: None,
+            raw_bytes: Vec::new(),
+            payload: Vec::new(),
+            payload_hex: String::new(),
+            payload_ascii: String::new(),
+            capture_index: 0,
+        }
+    }
+
+    #[test]
+    fn store_assigns_monotonic_seqs() {
+        let engine = CaptureEngine::new();
+        engine.store_packet(packet(0));
+        engine.store_packet(packet(0));
+        engine.store_packet(packet(0));
+        let batch = engine.poll_since(0);
+        assert_eq!(batch.packets.len(), 3);
+        assert_eq!(batch.packets[0].seq, 0);
+        assert_eq!(batch.packets[2].seq, 2);
+        assert_eq!(batch.latest_seq, 2);
+        assert_eq!(batch.dropped, 0);
+    }
+
+    #[test]
+    fn poll_since_returns_only_new_packets() {
+        let engine = CaptureEngine::new();
+        for _ in 0..10 {
+            engine.store_packet(packet(0));
+        }
+        let first = engine.poll_since(0);
+        assert_eq!(first.packets.len(), 10);
+        assert_eq!(first.latest_seq, 9);
+
+        let second = engine.poll_since(9);
+        assert!(second.packets.is_empty());
+        assert_eq!(second.latest_seq, 9);
+    }
+
+    #[test]
+    fn poll_since_detects_evicted_packets() {
+        let engine = CaptureEngine::new();
+        for _ in 0..10 {
+            engine.store_packet(packet(0));
+        }
+        engine.poll_since(0);
+        // Evict the first 6 (seqs 0..=5), simulate client cursor at 2
+        engine.packets.lock().unwrap().drain(..6);
+        let batch = engine.poll_since(2);
+        assert_eq!(batch.dropped, 3);
+        assert_eq!(batch.packets.first().unwrap().seq, 6);
+        assert_eq!(batch.latest_seq, 9);
+    }
+
+    #[test]
+    fn poll_since_jumped_cursor_returns_nothing() {
+        let engine = CaptureEngine::new();
+        for _ in 0..5 {
+            engine.store_packet(packet(0));
+        }
+        let batch = engine.poll_since(100);
+        assert!(batch.packets.is_empty());
+        assert_eq!(batch.latest_seq, 100);
+        assert_eq!(batch.dropped, 0);
+    }
+
+    #[test]
+    fn clear_resets_sequence_and_totals() {
+        let engine = CaptureEngine::new();
+        for _ in 0..5 {
+            engine.store_packet(packet(0));
+        }
+        assert_eq!(engine.totals(), (5, 0));
+        engine.clear_packets();
+        assert_eq!(engine.totals(), (0, 0));
+        engine.store_packet(packet(0));
+        assert_eq!(engine.poll_since(0).packets[0].seq, 0);
+    }
+
+    #[test]
+    fn ring_buffer_evicts_oldest_ten_percent() {
+        let engine = CaptureEngine::new();
+        for _ in 0..(MAX_STORED_PACKETS + 100) {
+            let mut p = packet(0);
+            p.frame_length = 1;
+            engine.store_packet(p);
+        }
+        let expected = MAX_STORED_PACKETS - MAX_STORED_PACKETS / 10 + 100;
+        let batch = engine.poll_since(0);
+        assert_eq!(batch.packets.len(), expected);
+        assert_eq!(
+            batch.packets.first().unwrap().seq,
+            (MAX_STORED_PACKETS / 10) as u64
+        );
+        assert_eq!(engine.totals().0, MAX_STORED_PACKETS + 100);
+        assert_eq!(engine.totals().1, MAX_STORED_PACKETS + 100);
+    }
 }

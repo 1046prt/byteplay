@@ -3,17 +3,19 @@ mod parser;
 mod replay;
 mod storage;
 
-use capture::{CaptureConfig, CaptureEngine, CapturedPacket};
+use capture::{CaptureConfig, CaptureEngine, CapturedPacket, PollBatch};
 use replay::{execute_sequence, FuzzConfig, ReplayConfig, SequenceStep};
-use storage::{ReplayRecord, SavedPacket, SavedSequence, Storage};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::Mutex;
-use tauri::State;
+use std::sync::{Arc, Mutex};
+use storage::{ReplayRecord, SavedPacket, SavedSequence, Storage};
+use tauri::{Emitter, State};
 
 pub struct AppState {
     pub capture_engine: CaptureEngine,
     pub storage: Mutex<Storage>,
     pub capture_rx: Mutex<Option<mpsc::Receiver<CapturedPacket>>>,
+    pub fuzz_cancel: Arc<AtomicBool>,
 }
 
 #[tauri::command]
@@ -22,14 +24,9 @@ fn list_interfaces() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn start_capture(
-    state: State<'_, AppState>,
-    config: CaptureConfig,
-) -> Result<String, String> {
+fn start_capture(state: State<'_, AppState>, config: CaptureConfig) -> Result<String, String> {
     let (tx, rx) = mpsc::channel::<CapturedPacket>();
-    state
-        .capture_engine
-        .start_capture(config.clone(), tx)?;
+    state.capture_engine.start_capture(config.clone(), tx)?;
 
     *state.capture_rx.lock().map_err(|e| e.to_string())? = Some(rx);
 
@@ -44,24 +41,20 @@ fn stop_capture(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn poll_packets(state: State<'_, AppState>) -> Result<Vec<CapturedPacket>, String> {
+fn poll_packets(state: State<'_, AppState>, since: u64) -> Result<PollBatch, String> {
     let rx_lock = state.capture_rx.lock().map_err(|e| e.to_string())?;
     if let Some(ref rx) = *rx_lock {
-        let mut packets = Vec::new();
         loop {
             match rx.try_recv() {
                 Ok(packet) => {
-                    state.capture_engine.store_packet(packet.clone());
-                    packets.push(packet);
+                    state.capture_engine.store_packet(packet);
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => break,
             }
         }
-        Ok(packets)
-    } else {
-        Ok(Vec::new())
     }
+    Ok(state.capture_engine.poll_since(since))
 }
 
 #[tauri::command]
@@ -79,6 +72,7 @@ fn reparse_packet(raw_bytes: Vec<u8>, interface: String) -> Result<CapturedPacke
     let parsed = parse_packet(raw_bytes, interface);
     Ok(CP {
         id: parsed.id,
+        seq: 0,
         timestamp: parsed.timestamp,
         interface: parsed.interface,
         frame_length: parsed.frame_length,
@@ -179,10 +173,7 @@ fn get_saved_packets(state: State<'_, AppState>) -> Result<Vec<SavedPacket>, Str
 }
 
 #[tauri::command]
-fn delete_saved_packet(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<String, String> {
+fn delete_saved_packet(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let storage = state.storage.lock().map_err(|e| e.to_string())?;
     storage.delete_saved_packet(&id)?;
     Ok("Packet deleted".to_string())
@@ -247,11 +238,10 @@ async fn execute_replay_sequence(
     steps: Vec<SequenceStep>,
     allow_external: bool,
 ) -> Result<Vec<replay::ReplayResult>, String> {
-    let results = tauri::async_runtime::spawn_blocking(move || {
-        execute_sequence(steps, allow_external)
-    })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))?;
+    let results =
+        tauri::async_runtime::spawn_blocking(move || execute_sequence(steps, allow_external))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))?;
 
     if let Ok(storage) = state.storage.lock() {
         for result in &results {
@@ -276,19 +266,35 @@ async fn execute_replay_sequence(
     Ok(results)
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct FuzzProgress {
+    pub done: u32,
+    pub total: u32,
+}
+
 #[tauri::command]
 async fn run_fuzzer(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     config: FuzzConfig,
 ) -> Result<Vec<replay::FuzzResult>, String> {
+    let cancel = state.fuzz_cancel.clone();
+    cancel.store(false, Ordering::SeqCst);
+
     let results = tauri::async_runtime::spawn_blocking(move || {
-        replay::run_fuzz(config, None)
+        replay::run_fuzz(
+            config,
+            Some(cancel),
+            Some(move |done, total| {
+                let _ = app.emit("fuzz-progress", FuzzProgress { done, total });
+            }),
+        )
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?;
 
     if let Ok(storage) = state.storage.lock() {
-        for result in &results {
+        for result in results.iter().filter(|r| !r.replay_result.success) {
             let record = ReplayRecord {
                 id: uuid::Uuid::new_v4().to_string(),
                 packet_id: None,
@@ -308,6 +314,12 @@ async fn run_fuzzer(
     }
 
     Ok(results)
+}
+
+#[tauri::command]
+fn cancel_fuzzer(state: State<'_, AppState>) -> Result<String, String> {
+    state.fuzz_cancel.store(true, Ordering::SeqCst);
+    Ok("Fuzzer cancellation requested".to_string())
 }
 
 #[tauri::command]
@@ -339,10 +351,7 @@ fn get_saved_sequences(state: State<'_, AppState>) -> Result<Vec<SavedSequence>,
 }
 
 #[tauri::command]
-fn delete_sequence(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<String, String> {
+fn delete_sequence(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let storage = state.storage.lock().map_err(|e| e.to_string())?;
     storage.delete_sequence(&id)?;
     Ok("Sequence deleted".to_string())
@@ -381,10 +390,7 @@ fn export_json(
 }
 
 #[tauri::command]
-fn compute_hex_diff(
-    original: Vec<u8>,
-    modified: Vec<u8>,
-) -> Vec<HexDiffEntry> {
+fn compute_hex_diff(original: Vec<u8>, modified: Vec<u8>) -> Vec<HexDiffEntry> {
     let max_len = original.len().max(modified.len());
     let mut entries = Vec::new();
 
@@ -456,71 +462,101 @@ pub struct CaptureStatsData {
 
 #[tauri::command]
 fn get_capture_stats(state: State<'_, AppState>) -> Result<CaptureStatsData, String> {
+    let (total_packets, total_bytes) = state.capture_engine.totals();
     let packets = state.capture_engine.get_packets();
 
-    let mut proto_map: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+    let mut proto_map: std::collections::HashMap<String, (usize, usize)> =
+        std::collections::HashMap::new();
     let mut src_map: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut dst_map: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut total_bytes: usize = 0;
 
     for p in &packets {
-        let proto = if p.tcp.is_some() { "TCP".to_string() }
-            else if p.udp.is_some() { "UDP".to_string() }
-            else if let Some(ref ip4) = p.ipv4 { ip4.protocol.clone() }
-            else if let Some(ref ip6) = p.ipv6 { ip6.next_header.clone() }
-            else { "Other".to_string() };
+        let proto = if p.tcp.is_some() {
+            "TCP".to_string()
+        } else if p.udp.is_some() {
+            "UDP".to_string()
+        } else if let Some(ref ip4) = p.ipv4 {
+            ip4.protocol.clone()
+        } else if let Some(ref ip6) = p.ipv6 {
+            ip6.next_header.clone()
+        } else {
+            "Other".to_string()
+        };
 
         let entry = proto_map.entry(proto).or_insert((0, 0));
         entry.0 += 1;
         entry.1 += p.frame_length;
-        total_bytes += p.frame_length;
 
-        let src_ip = p.ipv4.as_ref().map(|ip| ip.src_ip.clone())
+        let src_ip = p
+            .ipv4
+            .as_ref()
+            .map(|ip| ip.src_ip.clone())
             .or_else(|| p.ipv6.as_ref().map(|ip| ip.src_ip.clone()))
             .unwrap_or_default();
-        let src_port = p.tcp.as_ref().map(|t| t.src_port)
+        let src_port = p
+            .tcp
+            .as_ref()
+            .map(|t| t.src_port)
             .or_else(|| p.udp.as_ref().map(|u| u.src_port));
         let src_ep = if let Some(port) = src_port {
             format!("{}:{}", src_ip, port)
-        } else { src_ip };
+        } else {
+            src_ip
+        };
         if !src_ep.is_empty() {
             *src_map.entry(src_ep).or_insert(0) += 1;
         }
 
-        let dst_ip = p.ipv4.as_ref().map(|ip| ip.dst_ip.clone())
+        let dst_ip = p
+            .ipv4
+            .as_ref()
+            .map(|ip| ip.dst_ip.clone())
             .or_else(|| p.ipv6.as_ref().map(|ip| ip.dst_ip.clone()))
             .unwrap_or_default();
-        let dst_port = p.tcp.as_ref().map(|t| t.dst_port)
+        let dst_port = p
+            .tcp
+            .as_ref()
+            .map(|t| t.dst_port)
             .or_else(|| p.udp.as_ref().map(|u| u.dst_port));
         let dst_ep = if let Some(port) = dst_port {
             format!("{}:{}", dst_ip, port)
-        } else { dst_ip };
+        } else {
+            dst_ip
+        };
         if !dst_ep.is_empty() {
             *dst_map.entry(dst_ep).or_insert(0) += 1;
         }
     }
 
-    let mut protocols: Vec<ProtocolStat> = proto_map.into_iter()
-        .map(|(protocol, (count, bytes))| ProtocolStat { protocol, count, bytes })
+    let mut protocols: Vec<ProtocolStat> = proto_map
+        .into_iter()
+        .map(|(protocol, (count, bytes))| ProtocolStat {
+            protocol,
+            count,
+            bytes,
+        })
         .collect();
-    protocols.sort_by(|a, b| b.count.cmp(&a.count));
+    protocols.sort_by_key(|p| std::cmp::Reverse(p.count));
 
-    let mut top_sources: Vec<EndpointStat> = src_map.into_iter()
+    let mut top_sources: Vec<EndpointStat> = src_map
+        .into_iter()
         .map(|(endpoint, count)| EndpointStat { endpoint, count })
         .collect();
-    top_sources.sort_by(|a, b| b.count.cmp(&a.count));
+    top_sources.sort_by_key(|e| std::cmp::Reverse(e.count));
     top_sources.truncate(20);
 
-    let mut top_destinations: Vec<EndpointStat> = dst_map.into_iter()
+    let mut top_destinations: Vec<EndpointStat> = dst_map
+        .into_iter()
         .map(|(endpoint, count)| EndpointStat { endpoint, count })
         .collect();
-    top_destinations.sort_by(|a, b| b.count.cmp(&a.count));
+    top_destinations.sort_by_key(|e| std::cmp::Reverse(e.count));
     top_destinations.truncate(20);
 
     let timeline = if packets.is_empty() {
         Vec::new()
     } else {
-        let mut buckets: std::collections::BTreeMap<String, (usize, usize)> = std::collections::BTreeMap::new();
+        let mut buckets: std::collections::BTreeMap<String, (usize, usize)> =
+            std::collections::BTreeMap::new();
         for p in &packets {
             let minute = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&p.timestamp) {
                 dt.format("%H:%M").to_string()
@@ -531,13 +567,18 @@ fn get_capture_stats(state: State<'_, AppState>) -> Result<CaptureStatsData, Str
             entry.0 += 1;
             entry.1 += p.frame_length;
         }
-        buckets.into_iter()
-            .map(|(ts, (count, bytes))| TimeBucket { timestamp: ts, count, bytes })
+        buckets
+            .into_iter()
+            .map(|(ts, (count, bytes))| TimeBucket {
+                timestamp: ts,
+                count,
+                bytes,
+            })
             .collect()
     };
 
     Ok(CaptureStatsData {
-        total_packets: packets.len(),
+        total_packets,
         total_bytes,
         protocols,
         top_sources,
@@ -552,12 +593,31 @@ pub fn run() {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("byteplay");
 
-    let storage = Storage::new(data_dir).expect("Failed to initialize storage");
+    let storage = match Storage::new(data_dir.clone()) {
+        Ok(storage) => storage,
+        Err(e) => {
+            log::error!("Failed to initialize storage at {:?}: {}", data_dir, e);
+            rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Error)
+                .set_title("byteplay — Database Error")
+                .set_description(format!(
+                    "Failed to open the packet database:\n{}\n\nDatabase path:\n{}\n\nThe app will continue with an in-memory database. Saved packets and history will not persist across sessions.",
+                    e,
+                    data_dir.display()
+                ))
+                .show();
+            match Storage::in_memory() {
+                Ok(storage) => storage,
+                Err(e) => panic!("In-memory storage initialization failed: {}", e),
+            }
+        }
+    };
 
     let state = AppState {
         capture_engine: CaptureEngine::new(),
         storage: Mutex::new(storage),
         capture_rx: Mutex::new(None),
+        fuzz_cancel: Arc::new(AtomicBool::new(false)),
     };
 
     tauri::Builder::default()
@@ -586,6 +646,7 @@ pub fn run() {
             get_replay_history,
             execute_replay_sequence,
             run_fuzzer,
+            cancel_fuzzer,
             save_sequence,
             get_saved_sequences,
             delete_sequence,
@@ -597,4 +658,47 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_diff_identical_bytes_unchanged() {
+        let entries = compute_hex_diff(vec![1, 2, 3], vec![1, 2, 3]);
+        assert_eq!(entries.len(), 3);
+        assert!(entries.iter().all(|e| !e.changed));
+        assert!(entries.iter().all(|e| e.original == e.modified));
+    }
+
+    #[test]
+    fn hex_diff_marks_byte_changes() {
+        let entries = compute_hex_diff(vec![1, 2, 3], vec![1, 9, 3]);
+        let changed: Vec<&HexDiffEntry> = entries.iter().filter(|e| e.changed).collect();
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].offset, 1);
+        assert_eq!(changed[0].original, Some(2));
+        assert_eq!(changed[0].modified, Some(9));
+    }
+
+    #[test]
+    fn hex_diff_handles_length_difference() {
+        let entries = compute_hex_diff(vec![1, 2], vec![1, 2, 3]);
+        assert_eq!(entries.len(), 3);
+        assert!(entries[2].changed);
+        assert_eq!(entries[2].original, None);
+        assert_eq!(entries[2].modified, Some(3));
+
+        let entries = compute_hex_diff(vec![1, 2, 3], vec![1]);
+        assert_eq!(entries.len(), 3);
+        assert!(entries[1].changed);
+        assert_eq!(entries[1].original, Some(2));
+        assert_eq!(entries[1].modified, None);
+    }
+
+    #[test]
+    fn hex_diff_empty_inputs() {
+        assert!(compute_hex_diff(Vec::new(), Vec::new()).is_empty());
+    }
 }

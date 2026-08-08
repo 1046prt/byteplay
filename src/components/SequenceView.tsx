@@ -11,11 +11,7 @@ interface SequenceViewProps {
   setStatusMessage: (msg: string) => void;
 }
 
-export function SequenceView({
-  sequences,
-  savedPackets,
-  onRefresh,
-}: SequenceViewProps) {
+export function SequenceView({ sequences, savedPackets, onRefresh }: SequenceViewProps) {
   const [steps, setSteps] = useState<SequenceStep[]>([]);
   const [sequenceName, setSequenceName] = useState("");
   const [sequenceDesc, setSequenceDesc] = useState("");
@@ -77,7 +73,10 @@ export function SequenceView({
       const res = await commands.executeReplaySequence(steps, allowExternal);
       setResults(res);
       const successCount = res.filter((r) => r.success).length;
-      toast(`Sequence: ${successCount}/${res.length} succeeded`, successCount === res.length ? "success" : "error");
+      toast(
+        `Sequence: ${successCount}/${res.length} succeeded`,
+        successCount === res.length ? "success" : "error"
+      );
       onRefresh();
     } catch (e) {
       toast(`Sequence failed: ${e}`, "error");
@@ -126,7 +125,12 @@ export function SequenceView({
               Allow external
             </label>
             <button
-              onClick={() => { setSteps([]); setSequenceName(""); setSequenceDesc(""); setResults(null); }}
+              onClick={() => {
+                setSteps([]);
+                setSequenceName("");
+                setSequenceDesc("");
+                setResults(null);
+              }}
               className="btn btn-secondary text-xs"
             >
               Clear
@@ -177,9 +181,7 @@ export function SequenceView({
               {steps.map((step, i) => (
                 <div key={i} className="panel p-3">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-[10px] text-gray-600 font-mono w-[20px]">
-                      {i + 1}.
-                    </span>
+                    <span className="text-[10px] text-gray-600 font-mono w-[20px]">{i + 1}.</span>
                     <span className="text-xs text-white font-medium">{step.name}</span>
                     <div className="flex-1" />
                     <button
@@ -220,7 +222,9 @@ export function SequenceView({
                         min="1"
                         max="65535"
                         value={String(step.target_port)}
-                        onChange={(e) => updateStep(i, "target_port", parseInt(e.target.value) || 0)}
+                        onChange={(e) =>
+                          updateStep(i, "target_port", parseInt(e.target.value) || 0)
+                        }
                         className="input input-mono text-[10px] w-full"
                       />
                     </div>
@@ -283,9 +287,7 @@ export function SequenceView({
 
       <div className="w-[280px] border-l border-[#1e293b] flex flex-col">
         <div className="p-2 bg-[#0d1117] border-b border-[#1e293b]">
-          <h3 className="text-xs font-semibold text-gray-400">
-            Saved Packets (click to add)
-          </h3>
+          <h3 className="text-xs font-semibold text-gray-400">Saved Packets (click to add)</h3>
         </div>
         <div className="flex-1 overflow-auto">
           {savedPackets.length === 0 ? (
@@ -331,7 +333,10 @@ export function SequenceView({
                     <span className="text-gray-600">{s.steps.length} steps</span>
                     <div className="flex-1" />
                     <button
-                      onClick={(e) => { e.stopPropagation(); deleteSequence(s.id, s.name); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSequence(s.id, s.name);
+                      }}
                       className="text-red-500 hover:text-red-400"
                     >
                       ×

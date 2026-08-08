@@ -30,16 +30,20 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     }, 300);
   }, []);
 
-  const toast = useCallback((message: string, type: "success" | "error" | "info" = "info") => {
-    const id = ++toastId;
-    setToasts((prev) => [...prev.slice(-4), { id, message, type, visible: true }]);
-    const timer = window.setTimeout(() => removeToast(id), 3000);
-    timersRef.current.set(id, timer);
-  }, [removeToast]);
+  const toast = useCallback(
+    (message: string, type: "success" | "error" | "info" = "info") => {
+      const id = ++toastId;
+      setToasts((prev) => [...prev.slice(-4), { id, message, type, visible: true }]);
+      const timer = window.setTimeout(() => removeToast(id), 3000);
+      timersRef.current.set(id, timer);
+    },
+    [removeToast]
+  );
 
   useEffect(() => {
+    const timers = timersRef.current;
     return () => {
-      timersRef.current.forEach((t) => clearTimeout(t));
+      timers.forEach((t) => clearTimeout(t));
     };
   }, []);
 
@@ -56,8 +60,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               t.type === "success"
                 ? "bg-green-900/90 text-green-200 border border-green-700/50"
                 : t.type === "error"
-                ? "bg-red-900/90 text-red-200 border border-red-700/50"
-                : "bg-[#1a2236]/90 text-gray-200 border border-[#1e293b]/50"
+                  ? "bg-red-900/90 text-red-200 border border-red-700/50"
+                  : "bg-[#1a2236]/90 text-gray-200 border border-[#1e293b]/50"
             }`}
           >
             <div className="flex items-center gap-2">

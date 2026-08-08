@@ -30,14 +30,10 @@ export function Header({ isCapturing, packetCount, statusMessage, stats }: Heade
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
           </span>
         )}
-        <span className="text-xs text-gray-400">
-          {isCapturing ? "Capturing" : "Idle"}
-        </span>
+        <span className="text-xs text-gray-400">{isCapturing ? "Capturing" : "Idle"}</span>
       </div>
       <div className="h-4 w-px bg-[#1e293b]" />
-      <span className="text-xs text-gray-500">
-        {packetCount.toLocaleString()} pkts
-      </span>
+      <span className="text-xs text-gray-500">{packetCount.toLocaleString()} pkts</span>
       {isCapturing && (
         <>
           <div className="h-4 w-px bg-[#1e293b]" />

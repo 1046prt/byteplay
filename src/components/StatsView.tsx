@@ -30,7 +30,7 @@ export function StatsView({ packetCount }: { packetCount: number }) {
   }, [packetCount]);
 
   const maxTimelineCount = useMemo(
-    () => Math.max(1, ...((stats?.timeline ?? []).map((t) => t.count))),
+    () => Math.max(1, ...(stats?.timeline ?? []).map((t) => t.count)),
     [stats]
   );
 
@@ -55,14 +55,8 @@ export function StatsView({ packetCount }: { packetCount: number }) {
       <div className="grid grid-cols-4 gap-3">
         <StatCard label="Total Packets" value={stats.total_packets.toLocaleString()} />
         <StatCard label="Total Bytes" value={formatBytes(stats.total_bytes)} />
-        <StatCard
-          label="Protocols"
-          value={stats.protocols.length.toString()}
-        />
-        <StatCard
-          label="Unique Sources"
-          value={stats.top_sources.length.toString()}
-        />
+        <StatCard label="Protocols" value={stats.protocols.length.toString()} />
+        <StatCard label="Unique Sources" value={stats.top_sources.length.toString()} />
       </div>
 
       <div className="grid grid-cols-2 gap-6">
@@ -103,7 +97,10 @@ export function StatsView({ packetCount }: { packetCount: number }) {
             {stats.timeline.map((t, i) => {
               const h = maxTimelineCount > 0 ? (t.count / maxTimelineCount) * 120 : 0;
               return (
-                <div key={i} className="flex-1 flex flex-col items-center justify-end h-full group relative">
+                <div
+                  key={i}
+                  className="flex-1 flex flex-col items-center justify-end h-full group relative"
+                >
                   <div className="absolute bottom-full mb-1 hidden group-hover:block z-10 bg-[#1e293b] border border-[#2d3748] rounded px-2 py-1 text-[10px] text-gray-300 whitespace-nowrap pointer-events-none">
                     {t.timestamp}: {t.count} pkts ({formatBytes(t.bytes)})
                   </div>
@@ -138,15 +135,16 @@ export function StatsView({ packetCount }: { packetCount: number }) {
                   <span className="text-gray-600 w-4 text-right">{i + 1}.</span>
                   <span className="text-gray-300 font-mono flex-1 truncate">{ep.endpoint}</span>
                   <div className="w-20 h-1.5 bg-[#111827] rounded-full overflow-hidden">
-                    <div className="h-full bg-green-500/60 rounded-full" style={{ width: `${pct}%` }} />
+                    <div
+                      className="h-full bg-green-500/60 rounded-full"
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
                   <span className="text-gray-500 w-16 text-right">{ep.count.toLocaleString()}</span>
                 </div>
               );
             })}
-            {stats.top_sources.length === 0 && (
-              <p className="text-xs text-gray-600">No data</p>
-            )}
+            {stats.top_sources.length === 0 && <p className="text-xs text-gray-600">No data</p>}
           </div>
         </div>
 
@@ -161,7 +159,10 @@ export function StatsView({ packetCount }: { packetCount: number }) {
                   <span className="text-gray-600 w-4 text-right">{i + 1}.</span>
                   <span className="text-gray-300 font-mono flex-1 truncate">{ep.endpoint}</span>
                   <div className="w-20 h-1.5 bg-[#111827] rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-500/60 rounded-full" style={{ width: `${pct}%` }} />
+                    <div
+                      className="h-full bg-blue-500/60 rounded-full"
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
                   <span className="text-gray-500 w-16 text-right">{ep.count.toLocaleString()}</span>
                 </div>

@@ -61,6 +61,7 @@ export interface UdpInfo {
 
 export interface CapturedPacket {
   id: string;
+  seq: number;
   timestamp: string;
   interface: string;
   frame_length: number;
@@ -214,4 +215,15 @@ export interface CaptureStatsData {
   top_sources: EndpointStat[];
   top_destinations: EndpointStat[];
   timeline: TimeBucket[];
+}
+
+export interface PollBatch {
+  packets: CapturedPacket[];
+  latest_seq: number;
+  dropped: number;
+}
+
+export interface FuzzProgress {
+  done: number;
+  total: number;
 }

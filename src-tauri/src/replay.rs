@@ -1,10 +1,15 @@
 use log::info;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::ToSocketAddrs;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 const RESPONSE_BUFFER_SIZE: usize = 65535;
+const MAX_FUZZ_ITERATIONS: u32 = 10_000;
+const MAX_FUZZ_TIMEOUT_MS: u64 = 30_000;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplayConfig {
@@ -29,10 +34,6 @@ pub struct ReplayResult {
 
 fn is_local_address(host: &str) -> bool {
     if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
-        return true;
-    }
-
-    if host.starts_with("10.") || host.starts_with("172.") || host.starts_with("192.168.") {
         return true;
     }
 
@@ -84,7 +85,7 @@ pub fn replay_packet(data: &[u8], config: ReplayConfig) -> ReplayResult {
             ReplayResult {
                 success: true,
                 bytes_sent: data.len(),
-                response: resp.as_ref().map(|r| r.clone()),
+                response: resp.clone(),
                 response_hex: resp.as_ref().map(|r| {
                     r.iter()
                         .map(|b| format!("{:02x}", b))
@@ -153,8 +154,9 @@ fn send_tcp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, Strin
         Ok(n) => {
             response.extend_from_slice(&buf[..n]);
         }
-        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
-            || e.kind() == std::io::ErrorKind::TimedOut =>
+        Err(ref e)
+            if e.kind() == std::io::ErrorKind::WouldBlock
+                || e.kind() == std::io::ErrorKind::TimedOut =>
         {
             info!("TCP read timed out - no response received");
         }
@@ -200,9 +202,7 @@ fn send_udp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, Strin
     let mut buf = vec![0u8; RESPONSE_BUFFER_SIZE];
 
     match std_socket.recv_from(&mut buf) {
-        Ok((n, _)) => {
-            Ok(Some(buf[..n].to_vec()))
-        }
+        Ok((n, _)) => Ok(Some(buf[..n].to_vec())),
         Err(ref e)
             if e.kind() == std::io::ErrorKind::WouldBlock
                 || e.kind() == std::io::ErrorKind::TimedOut =>
@@ -216,10 +216,7 @@ fn send_udp(data: &[u8], config: &ReplayConfig) -> Result<Option<Vec<u8>>, Strin
 
 use std::io::Write;
 
-pub fn execute_sequence(
-    steps: Vec<SequenceStep>,
-    allow_external: bool,
-) -> Vec<ReplayResult> {
+pub fn execute_sequence(steps: Vec<SequenceStep>, allow_external: bool) -> Vec<ReplayResult> {
     let mut results = Vec::new();
 
     for step in steps {
@@ -280,10 +277,35 @@ pub struct Mutation {
     pub mutated: u8,
 }
 
-pub fn run_fuzz(config: FuzzConfig, progress_tx: Option<std::sync::mpsc::Sender<FuzzResult>>) -> Vec<FuzzResult> {
-    let mut results = Vec::new();
+pub fn run_fuzz<F>(
+    config: FuzzConfig,
+    cancel: Option<Arc<AtomicBool>>,
+    on_progress: Option<F>,
+) -> Vec<FuzzResult>
+where
+    F: Fn(u32, u32),
+{
+    let mut config = config;
+    clamp_fuzz_config(&mut config);
 
-    for i in 0..config.iterations {
+    let total = config.iterations;
+    let batch = if total == 0 {
+        0
+    } else {
+        (total / 100).clamp(1, 100)
+    };
+
+    let mut results = Vec::new();
+    let mut cancelled = false;
+
+    for i in 0..total {
+        if let Some(ref flag) = cancel {
+            if flag.load(Ordering::SeqCst) {
+                cancelled = true;
+                break;
+            }
+        }
+
         let (mutated, mutations) = mutate_payload(&config.base_payload, config.mutation_rate);
 
         let replay_config = ReplayConfig {
@@ -295,35 +317,62 @@ pub fn run_fuzz(config: FuzzConfig, progress_tx: Option<std::sync::mpsc::Sender<
         };
 
         let result = replay_packet(&mutated, replay_config);
-        let fuzz_result = FuzzResult {
+        results.push(FuzzResult {
             iteration: i + 1,
             mutated_payload: mutated,
             replay_result: result,
             mutations_applied: mutations,
-        };
+        });
 
-        if let Some(ref tx) = progress_tx {
-            if tx.send(fuzz_result.clone()).is_err() {
-                break;
+        let done = i + 1;
+        if batch > 0 && (done % batch == 0 || done == total) {
+            if let Some(ref cb) = on_progress {
+                cb(done, total);
             }
         }
-
-        results.push(fuzz_result);
     }
+
+    if let Some(ref cb) = on_progress {
+        if !results.is_empty() {
+            let done = if cancelled {
+                results.last().map(|r| r.iteration).unwrap_or(0)
+            } else {
+                total
+            };
+            cb(done, total);
+        }
+    }
+
+    info!(
+        "Fuzzing finished: {} of {} iterations ({})",
+        results.len(),
+        total,
+        if cancelled { "cancelled" } else { "completed" }
+    );
 
     results
 }
 
+fn clamp_fuzz_config(config: &mut FuzzConfig) {
+    config.iterations = config.iterations.min(MAX_FUZZ_ITERATIONS);
+    config.mutation_rate = config.mutation_rate.clamp(0.0, 1.0);
+    config.timeout_ms = config.timeout_ms.clamp(100, MAX_FUZZ_TIMEOUT_MS);
+}
+
 fn mutate_payload(base: &[u8], rate: f64) -> (Vec<u8>, Vec<Mutation>) {
+    mutate_payload_with(base, rate, &mut rand::thread_rng())
+}
+
+fn mutate_payload_with<R: Rng>(base: &[u8], rate: f64, rng: &mut R) -> (Vec<u8>, Vec<Mutation>) {
     let mut mutated = base.to_vec();
     let mut mutations = Vec::new();
 
     for (i, byte) in mutated.iter_mut().enumerate() {
-        if rand::random::<f64>() < rate {
+        if rng.gen::<f64>() < rate {
             let original = *byte;
-            let mutation_type = rand::random::<u8>() % 4;
+            let mutation_type = rng.gen::<u8>() % 4;
             match mutation_type {
-                0 => *byte = rand::random::<u8>(),
+                0 => *byte = rng.gen::<u8>(),
                 1 => *byte = 0x00,
                 2 => *byte = 0xFF,
                 3 => *byte = original.wrapping_add(1),
@@ -340,4 +389,246 @@ fn mutate_payload(base: &[u8], rate: f64) -> (Vec<u8>, Vec<Mutation>) {
     }
 
     (mutated, mutations)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, UdpSocket};
+
+    #[test]
+    fn mutate_payload_preserves_length_and_records_changes() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let base = vec![0xAAu8; 256];
+        let (mutated, mutations) = mutate_payload_with(&base, 1.0, &mut rng);
+        assert_eq!(mutated.len(), base.len());
+        for m in &mutations {
+            assert_ne!(m.original, mutated[m.offset]);
+        }
+        assert_eq!(mutations.len(), 256);
+    }
+
+    #[test]
+    fn mutate_payload_zero_rate_is_identity() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let base = vec![0x00u8, 0x01, 0x02, 0x03];
+        let (mutated, mutations) = mutate_payload_with(&base, 0.0, &mut rng);
+        assert_eq!(mutated, base);
+        assert!(mutations.is_empty());
+    }
+
+    #[test]
+    fn mutate_payload_is_deterministic_with_seed() {
+        let base = b"hello world".to_vec();
+        let (a, _) = mutate_payload_with(&base, 0.5, &mut StdRng::seed_from_u64(7));
+        let (b, _) = mutate_payload_with(&base, 0.5, &mut StdRng::seed_from_u64(7));
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn clamp_fuzz_config_bounds_inputs() {
+        let mut config = FuzzConfig {
+            target_host: "127.0.0.1".into(),
+            target_port: 1,
+            protocol: "TCP".into(),
+            base_payload: b"test".to_vec(),
+            iterations: u32::MAX,
+            mutation_rate: 5.0,
+            timeout_ms: 0,
+            allow_external: true,
+        };
+        clamp_fuzz_config(&mut config);
+        assert_eq!(config.iterations, MAX_FUZZ_ITERATIONS);
+        assert_eq!(config.mutation_rate, 1.0);
+        assert_eq!(config.timeout_ms, 100);
+
+        config.iterations = 0;
+        config.mutation_rate = -1.0;
+        config.timeout_ms = 99_999;
+        clamp_fuzz_config(&mut config);
+        assert_eq!(config.iterations, 0);
+        assert_eq!(config.mutation_rate, 0.0);
+        assert_eq!(config.timeout_ms, MAX_FUZZ_TIMEOUT_MS);
+    }
+
+    #[test]
+    fn run_fuzz_respects_cancellation() {
+        let cancel = Arc::new(AtomicBool::new(true));
+        let results = run_fuzz(
+            FuzzConfig {
+                target_host: "127.0.0.1".into(),
+                target_port: 1,
+                protocol: "TCP".into(),
+                base_payload: b"test".to_vec(),
+                iterations: 1000,
+                mutation_rate: 0.5,
+                timeout_ms: 100,
+                allow_external: true,
+            },
+            Some(cancel),
+            None::<fn(u32, u32)>,
+        );
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn run_fuzz_reports_progress() {
+        use std::sync::Mutex;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let calls_ref = calls.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cb = move |done: u32, total: u32| {
+            calls_ref.lock().unwrap().push((done, total));
+        };
+        run_fuzz(
+            FuzzConfig {
+                target_host: "127.0.0.1".into(),
+                target_port: 1,
+                protocol: "TCP".into(),
+                base_payload: b"".to_vec(),
+                iterations: 5,
+                mutation_rate: 0.5,
+                timeout_ms: 100,
+                allow_external: true,
+            },
+            Some(cancel),
+            Some(cb),
+        );
+        let calls = calls.lock().unwrap();
+        assert!(
+            calls.contains(&(5, 5)),
+            "final progress missing: {:?}",
+            *calls
+        );
+    }
+
+    #[test]
+    fn is_local_address_matches_private_ranges() {
+        assert!(is_local_address("127.0.0.1"));
+        assert!(is_local_address("localhost"));
+        assert!(is_local_address("::1"));
+        assert!(is_local_address("192.168.1.10"));
+        assert!(is_local_address("10.0.0.1"));
+        assert!(is_local_address("172.16.0.1"));
+        assert!(is_local_address("172.31.255.255"));
+        assert!(!is_local_address("172.15.0.1"));
+        assert!(!is_local_address("172.32.0.1"));
+        assert!(!is_local_address("8.8.8.8"));
+        assert!(!is_local_address("example.com"));
+    }
+
+    #[test]
+    fn replay_blocks_external_targets_by_default() {
+        let result = replay_packet(
+            b"probe",
+            ReplayConfig {
+                target_host: "8.8.8.8".into(),
+                target_port: 53,
+                protocol: "UDP".into(),
+                timeout_ms: 500,
+                allow_external: false,
+            },
+        );
+        assert!(!result.success);
+        assert!(result.error.as_deref().unwrap_or("").contains("Blocked"));
+    }
+
+    #[test]
+    fn udp_replay_round_trips_to_local_listener() {
+        let listener = UdpSocket::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+        let echo = listener.try_clone().expect("clone listener");
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 1024];
+            if let Ok((n, peer)) = echo.recv_from(&mut buf) {
+                let _ = echo.send_to(&buf[..n], peer);
+            }
+        });
+
+        let result = replay_packet(
+            b"ping",
+            ReplayConfig {
+                target_host: "127.0.0.1".into(),
+                target_port: addr.port(),
+                protocol: "UDP".into(),
+                timeout_ms: 2000,
+                allow_external: true,
+            },
+        );
+        assert!(result.success, "replay failed: {:?}", result.error);
+        assert_eq!(result.response.as_deref(), Some(b"ping".as_slice()));
+        assert_eq!(result.bytes_sent, 4);
+    }
+
+    #[test]
+    fn tcp_replay_round_trips_to_local_listener() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                if let Ok(n) = stream.read(&mut buf) {
+                    let _ = stream.write_all(&buf[..n]);
+                }
+            }
+        });
+
+        let result = replay_packet(
+            b"hello tcp",
+            ReplayConfig {
+                target_host: "127.0.0.1".into(),
+                target_port: addr.port(),
+                protocol: "TCP".into(),
+                timeout_ms: 2000,
+                allow_external: true,
+            },
+        );
+        assert!(result.success, "replay failed: {:?}", result.error);
+        assert_eq!(result.response.as_deref(), Some(b"hello tcp".as_slice()));
+    }
+
+    #[test]
+    fn tcp_replay_timeout_yields_empty_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                std::thread::sleep(Duration::from_millis(2000));
+            }
+        });
+
+        let result = replay_packet(
+            b"no reply",
+            ReplayConfig {
+                target_host: "127.0.0.1".into(),
+                target_port: addr.port(),
+                protocol: "TCP".into(),
+                timeout_ms: 200,
+                allow_external: true,
+            },
+        );
+        assert!(result.success);
+        assert!(result.response.is_none());
+    }
+
+    #[test]
+    fn connection_refused_reports_failure() {
+        let result = replay_packet(
+            b"x",
+            ReplayConfig {
+                target_host: "127.0.0.1".into(),
+                target_port: 1,
+                protocol: "TCP".into(),
+                timeout_ms: 500,
+                allow_external: true,
+            },
+        );
+        assert!(!result.success);
+        assert!(result.error.is_some());
+    }
 }

@@ -28,6 +28,7 @@ dist-ssr
 # Rust
 src-tauri/target/
 src-tauri/gen/
+src-tauri/npcap-sdk/
 
 # Build artifacts
 *.pdb

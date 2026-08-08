@@ -87,8 +87,8 @@ export function ContextMenuRenderer() {
             item.disabled
               ? "text-gray-700 cursor-not-allowed"
               : item.danger
-              ? "text-red-400 hover:bg-red-900/30"
-              : "text-gray-300 hover:bg-[#1a2236] hover:text-white"
+                ? "text-red-400 hover:bg-red-900/30"
+                : "text-gray-300 hover:bg-[#1a2236] hover:text-white"
           }`}
         >
           {item.icon && <span className="w-4 text-center text-[10px]">{item.icon}</span>}

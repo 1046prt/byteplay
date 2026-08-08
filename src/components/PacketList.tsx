@@ -16,9 +16,11 @@ type SortDir = "asc" | "desc";
 function formatTime(ts: string): string {
   try {
     const d = new Date(ts);
-    return d.toLocaleTimeString("en-US", { hour12: false }) +
+    return (
+      d.toLocaleTimeString("en-US", { hour12: false }) +
       "." +
-      String(d.getMilliseconds()).padStart(3, "0");
+      String(d.getMilliseconds()).padStart(3, "0")
+    );
   } catch {
     return ts;
   }
@@ -46,11 +48,16 @@ function getDstEndpoint(p: CapturedPacket): string {
 
 function getProtocolColor(protocol: string): string {
   switch (protocol) {
-    case "TCP": return "text-blue-400";
-    case "UDP": return "text-green-400";
-    case "ICMP": return "text-yellow-400";
-    case "ICMPv6": return "text-yellow-400";
-    default: return "text-gray-400";
+    case "TCP":
+      return "text-blue-400";
+    case "UDP":
+      return "text-green-400";
+    case "ICMP":
+      return "text-yellow-400";
+    case "ICMPv6":
+      return "text-yellow-400";
+    default:
+      return "text-gray-400";
   }
 }
 
@@ -96,7 +103,12 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return <span className="text-blue-400 ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
-export function PacketList({ packets, selectedPacket, onSelectPacket, onContextMenu }: PacketListProps) {
+export function PacketList({
+  packets,
+  selectedPacket,
+  onSelectPacket,
+  onContextMenu,
+}: PacketListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [sortKey, setSortKey] = useState<SortKey>("index");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -176,11 +188,7 @@ export function PacketList({ packets, selectedPacket, onSelectPacket, onContextM
         <span className="w-[70px] shrink-0 text-right">Flags</span>
         <span className="w-[200px] shrink-0 ml-2">Payload</span>
       </div>
-      <div
-        ref={parentRef}
-        className="flex-1 overflow-auto"
-        style={{ contain: "strict" }}
-      >
+      <div ref={parentRef} className="flex-1 overflow-auto" style={{ contain: "strict" }}>
         <div
           style={{
             height: `${virtualizer.getTotalSize()}px`,
@@ -216,25 +224,19 @@ export function PacketList({ packets, selectedPacket, onSelectPacket, onContextM
                 <span className="w-[42px] text-gray-600 text-[10px] shrink-0">
                   {p.capture_index}
                 </span>
-                <span className="w-[110px] text-gray-500 shrink-0">
-                  {formatTime(p.timestamp)}
-                </span>
-                <span className={`w-[50px] text-center font-semibold shrink-0 ${getProtocolColor(protocol)}`}>
+                <span className="w-[110px] text-gray-500 shrink-0">{formatTime(p.timestamp)}</span>
+                <span
+                  className={`w-[50px] text-center font-semibold shrink-0 ${getProtocolColor(protocol)}`}
+                >
                   {protocol}
                 </span>
-                <span className="flex-1 truncate text-gray-300 min-w-0">
-                  {getSrcEndpoint(p)}
-                </span>
+                <span className="flex-1 truncate text-gray-300 min-w-0">{getSrcEndpoint(p)}</span>
                 <span className="text-gray-600 mx-1 shrink-0">→</span>
-                <span className="flex-1 truncate text-gray-300 min-w-0">
-                  {getDstEndpoint(p)}
-                </span>
+                <span className="flex-1 truncate text-gray-300 min-w-0">{getDstEndpoint(p)}</span>
                 <span className="w-[70px] text-[10px] text-gray-500 shrink-0 truncate text-right pr-1">
                   {getFlags(p) || ""}
                 </span>
-                <span className="w-[55px] text-right text-gray-500 shrink-0">
-                  {p.frame_length}
-                </span>
+                <span className="w-[55px] text-right text-gray-500 shrink-0">{p.frame_length}</span>
                 <span className="w-[200px] truncate text-gray-600 ml-2 shrink-0">
                   {getPreview(p)}
                 </span>

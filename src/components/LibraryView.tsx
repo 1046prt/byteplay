@@ -10,11 +10,7 @@ interface LibraryViewProps {
   setStatusMessage: (msg: string) => void;
 }
 
-export function LibraryView({
-  savedPackets,
-  onRefresh,
-  onSelectPacket,
-}: LibraryViewProps) {
+export function LibraryView({ savedPackets, onRefresh, onSelectPacket }: LibraryViewProps) {
   const [searchText, setSearchText] = useState("");
   const [exporting, setExporting] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
@@ -35,18 +31,22 @@ export function LibraryView({
     return Array.from(tagSet).sort();
   }, [savedPackets]);
 
-  const filtered = useMemo(() => savedPackets.filter((p) => {
-    if (activeTag && !p.tags.includes(activeTag)) return false;
-    if (!searchText) return true;
-    const lower = searchText.toLowerCase();
-    return (
-      p.name.toLowerCase().includes(lower) ||
-      p.src_endpoint.toLowerCase().includes(lower) ||
-      p.dst_endpoint.toLowerCase().includes(lower) ||
-      p.protocol.toLowerCase().includes(lower) ||
-      p.tags.some((t) => t.toLowerCase().includes(lower))
-    );
-  }), [savedPackets, searchText, activeTag]);
+  const filtered = useMemo(
+    () =>
+      savedPackets.filter((p) => {
+        if (activeTag && !p.tags.includes(activeTag)) return false;
+        if (!searchText) return true;
+        const lower = searchText.toLowerCase();
+        return (
+          p.name.toLowerCase().includes(lower) ||
+          p.src_endpoint.toLowerCase().includes(lower) ||
+          p.dst_endpoint.toLowerCase().includes(lower) ||
+          p.protocol.toLowerCase().includes(lower) ||
+          p.tags.some((t) => t.toLowerCase().includes(lower))
+        );
+      }),
+    [savedPackets, searchText, activeTag]
+  );
 
   const handleDelete = async (id: string) => {
     try {
@@ -78,7 +78,15 @@ export function LibraryView({
   const saveEdit = async () => {
     if (!editingId || !editName.trim()) return;
     try {
-      await commands.updateSavedPacket(editingId, editName.trim(), editDesc.trim(), editTags.split(",").map((t) => t.trim()).filter(Boolean));
+      await commands.updateSavedPacket(
+        editingId,
+        editName.trim(),
+        editDesc.trim(),
+        editTags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      );
       toast("Packet updated", "success");
       setEditingId(null);
       onRefresh();
@@ -167,10 +175,7 @@ export function LibraryView({
         ) : (
           <div className="space-y-2">
             {filtered.map((p) => (
-              <div
-                key={p.id}
-                className="panel p-3 hover:bg-[#161b22] transition-colors"
-              >
+              <div key={p.id} className="panel p-3 hover:bg-[#161b22] transition-colors">
                 {editingId === p.id ? (
                   <div className="space-y-2">
                     <input
@@ -195,20 +200,27 @@ export function LibraryView({
                       className="input w-full text-xs"
                     />
                     <div className="flex gap-2">
-                      <button onClick={saveEdit} className="btn btn-primary text-[10px]">Save</button>
-                      <button onClick={cancelEdit} className="btn btn-secondary text-[10px]">Cancel</button>
+                      <button onClick={saveEdit} className="btn btn-primary text-[10px]">
+                        Save
+                      </button>
+                      <button onClick={cancelEdit} className="btn btn-secondary text-[10px]">
+                        Cancel
+                      </button>
                     </div>
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center gap-3 cursor-pointer" onClick={() => onSelectPacket(p)}>
+                    <div
+                      className="flex items-center gap-3 cursor-pointer"
+                      onClick={() => onSelectPacket(p)}
+                    >
                       <span
                         className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                           p.protocol === "TCP"
                             ? "bg-blue-900/40 text-blue-400"
                             : p.protocol === "UDP"
-                            ? "bg-green-900/40 text-green-400"
-                            : "bg-gray-800 text-gray-400"
+                              ? "bg-green-900/40 text-green-400"
+                              : "bg-gray-800 text-gray-400"
                         }`}
                       >
                         {p.protocol}
@@ -238,9 +250,7 @@ export function LibraryView({
                           ))}
                         </div>
                       )}
-                      <span className="text-[10px] text-gray-600">
-                        {p.raw_bytes.length} bytes
-                      </span>
+                      <span className="text-[10px] text-gray-600">{p.raw_bytes.length} bytes</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -256,16 +266,26 @@ export function LibraryView({
                           handleDeleteClick(p.id, p.name);
                         }}
                         className={`btn text-[10px] px-2 py-0.5 ${
-                          pendingDelete?.id === p.id ? "btn-danger opacity-100" : "btn-danger opacity-50 hover:opacity-100"
+                          pendingDelete?.id === p.id
+                            ? "btn-danger opacity-100"
+                            : "btn-danger opacity-50 hover:opacity-100"
                         }`}
                       >
                         {pendingDelete?.id === p.id ? "Sure?" : "×"}
                       </button>
                     </div>
                     {p.description && (
-                      <p className="text-xs text-gray-500 mt-1 cursor-pointer" onClick={() => onSelectPacket(p)}>{p.description}</p>
+                      <p
+                        className="text-xs text-gray-500 mt-1 cursor-pointer"
+                        onClick={() => onSelectPacket(p)}
+                      >
+                        {p.description}
+                      </p>
                     )}
-                    <div className="text-[10px] text-gray-600 mt-1 font-mono cursor-pointer" onClick={() => onSelectPacket(p)}>
+                    <div
+                      className="text-[10px] text-gray-600 mt-1 font-mono cursor-pointer"
+                      onClick={() => onSelectPacket(p)}
+                    >
                       {p.payload_hex.substring(0, 120)}
                       {p.payload_hex.length > 120 ? "…" : ""}
                     </div>

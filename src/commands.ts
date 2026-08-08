@@ -12,17 +12,16 @@ import type {
   FuzzResult,
   HexDiffEntry,
   CaptureStatsData,
+  PollBatch,
 } from "./types";
 
 export const commands = {
   listInterfaces: () => invoke<string[]>("list_interfaces"),
 
-  startCapture: (config: CaptureConfig) =>
-    invoke<string>("start_capture", { config }),
+  startCapture: (config: CaptureConfig) => invoke<string>("start_capture", { config }),
   stopCapture: () => invoke<string>("stop_capture"),
-  pollPackets: () => invoke<CapturedPacket[]>("poll_packets"),
-  getPacketById: (id: string) =>
-    invoke<CapturedPacket | null>("get_packet_by_id", { id }),
+  pollPackets: (since: number) => invoke<PollBatch>("poll_packets", { since }),
+  getPacketById: (id: string) => invoke<CapturedPacket | null>("get_packet_by_id", { id }),
   reparsePacket: (rawBytes: number[], interfaceName: string) =>
     invoke<CapturedPacket>("reparse_packet", { rawBytes, interface: interfaceName }),
   clearPackets: () => invoke<string>("clear_packets"),
@@ -30,8 +29,7 @@ export const commands = {
   savePacket: (packetId: string, name: string, description: string, tags: string[]) =>
     invoke<SavedPacket>("save_packet", { packetId, name, description, tags }),
   getSavedPackets: () => invoke<SavedPacket[]>("get_saved_packets"),
-  deleteSavedPacket: (id: string) =>
-    invoke<string>("delete_saved_packet", { id }),
+  deleteSavedPacket: (id: string) => invoke<string>("delete_saved_packet", { id }),
   updateSavedPacket: (id: string, name: string, description: string, tags: string[]) =>
     invoke<string>("update_saved_packet", { id, name, description, tags }),
 
@@ -41,15 +39,11 @@ export const commands = {
 
   executeReplaySequence: (steps: SequenceStep[], allowExternal: boolean) =>
     invoke<ReplayResult[]>("execute_replay_sequence", { steps, allowExternal }),
-  runFuzzer: (config: FuzzConfig) =>
-    invoke<FuzzResult[]>("run_fuzzer", { config }),
+  runFuzzer: (config: FuzzConfig) => invoke<FuzzResult[]>("run_fuzzer", { config }),
+  cancelFuzzer: () => invoke<string>("cancel_fuzzer"),
 
-  saveSequence: (
-    name: string,
-    description: string,
-    steps: SequenceStep[],
-    tags: string[]
-  ) => invoke<SavedSequence>("save_sequence", { name, description, steps, tags }),
+  saveSequence: (name: string, description: string, steps: SequenceStep[], tags: string[]) =>
+    invoke<SavedSequence>("save_sequence", { name, description, steps, tags }),
   getSavedSequences: () => invoke<SavedSequence[]>("get_saved_sequences"),
   deleteSequence: (id: string) => invoke<string>("delete_sequence", { id }),
 
@@ -61,8 +55,6 @@ export const commands = {
   computeHexDiff: (original: number[], modified: number[]) =>
     invoke<HexDiffEntry[]>("compute_hex_diff", { original, modified }),
 
-  importPcap: (path: string) =>
-    invoke<CapturedPacket[]>("import_pcap", { path }),
-  getCaptureStats: () =>
-    invoke<CaptureStatsData>("get_capture_stats"),
+  importPcap: (path: string) => invoke<CapturedPacket[]>("import_pcap", { path }),
+  getCaptureStats: () => invoke<CaptureStatsData>("get_capture_stats"),
 };

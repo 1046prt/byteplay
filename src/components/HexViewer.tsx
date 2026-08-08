@@ -28,9 +28,7 @@ export function HexViewer({ bytes }: HexViewerProps) {
   }, [bytes]);
 
   if (bytes.length === 0) {
-    return (
-      <div className="text-xs text-gray-600 font-mono p-2">(no data)</div>
-    );
+    return <div className="text-xs text-gray-600 font-mono p-2">(no data)</div>;
   }
 
   return (
@@ -54,10 +52,7 @@ export function HexViewer({ bytes }: HexViewerProps) {
             </span>
             <span className="flex gap-0">
               {line.hex.map((entry) => (
-                <span
-                  key={entry.index}
-                  className="w-[22px] text-center text-gray-400"
-                >
+                <span key={entry.index} className="w-[22px] text-center text-gray-400">
                   {entry.byte.toString(16).padStart(2, "0")}
                 </span>
               ))}

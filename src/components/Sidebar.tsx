@@ -75,12 +75,8 @@ export function Sidebar({
       </nav>
 
       <div className="p-3 border-t border-[#1e293b]">
-        <div className="text-[10px] text-gray-600 text-center">
-          v{APP_VERSION} • Local-first
-        </div>
-        <div className="text-[9px] text-gray-700 text-center mt-1">
-          For authorized testing only
-        </div>
+        <div className="text-[10px] text-gray-600 text-center">v{APP_VERSION} • Local-first</div>
+        <div className="text-[9px] text-gray-700 text-center mt-1">For authorized testing only</div>
       </div>
     </aside>
   );

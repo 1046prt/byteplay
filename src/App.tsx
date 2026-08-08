@@ -48,8 +48,16 @@ function AppInner() {
     duration: 0,
   });
   const pollRef = useRef<number | null>(null);
+  const latestSeqRef = useRef(0);
   const packetBufferRef = useRef<CapturedPacket[]>([]);
-  const statsRef = useRef({ totalPackets: 0, totalBytes: 0, startTime: 0, lastSamplePackets: 0, lastSampleBytes: 0, lastSampleTime: 0 });
+  const statsRef = useRef({
+    totalPackets: 0,
+    totalBytes: 0,
+    startTime: 0,
+    lastSamplePackets: 0,
+    lastSampleBytes: 0,
+    lastSampleTime: 0,
+  });
 
   useEffect(() => {
     const base = "byteplay";
@@ -73,8 +81,10 @@ function AppInner() {
 
   const pollPackets = useCallback(async () => {
     try {
-      const newPackets = await commands.pollPackets();
+      const batch = await commands.pollPackets(latestSeqRef.current);
+      const newPackets = batch.packets;
       if (newPackets.length > 0) {
+        latestSeqRef.current = batch.latest_seq;
         packetBufferRef.current.push(...newPackets);
 
         const s = statsRef.current;
@@ -82,6 +92,9 @@ function AppInner() {
           s.totalPackets++;
           s.totalBytes += p.frame_length;
         }
+      }
+      if (batch.dropped > 0) {
+        setStatusMessage(`${batch.dropped} packet(s) dropped (ring buffer overflow)`);
       }
       flushBuffer();
 
@@ -107,7 +120,7 @@ function AppInner() {
     } catch (e) {
       console.error("Poll error:", e);
     }
-  }, [flushBuffer]);
+  }, [flushBuffer, setStatusMessage]);
 
   useEffect(() => {
     if (isCapturing) {
@@ -143,11 +156,16 @@ function AppInner() {
 
   useEffect(() => {
     loadSavedData();
-  }, []);
+  }, [loadSavedData]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      )
+        return;
 
       if (view === "capture") {
         if (e.key === "ArrowDown" || e.key === "j") {
@@ -198,6 +216,7 @@ function AppInner() {
 
   const handleClearPackets = async () => {
     await commands.clearPackets();
+    latestSeqRef.current = 0;
     setPackets([]);
     setSelectedPacket(null);
     statsRef.current.totalPackets = 0;
@@ -206,10 +225,13 @@ function AppInner() {
     setStatusMessage("Packets cleared");
   };
 
-  const handleImportPcap = useCallback((imported: CapturedPacket[]) => {
-    setPackets((prev) => [...prev, ...imported]);
-    setStatusMessage(`Imported ${imported.length} packets`);
-  }, [setStatusMessage]);
+  const handleImportPcap = useCallback(
+    (imported: CapturedPacket[]) => {
+      setPackets((prev) => [...prev, ...imported]);
+      setStatusMessage(`Imported ${imported.length} packets`);
+    },
+    [setStatusMessage]
+  );
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0e17]">
@@ -247,27 +269,61 @@ function AppInner() {
               onRefresh={loadSavedData}
               onSelectPacket={(p) => {
                 setSelectedPacket(null);
-                commands.reparsePacket(p.raw_bytes, "library").then((parsed) => {
-                  setSelectedPacket(parsed);
-                }).catch(() => {
-                  const ascii = p.payload.map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : ".")).join("");
-                  setSelectedPacket({
-                    id: p.id,
-                    timestamp: p.timestamp,
-                    interface: "library",
-                    frame_length: p.raw_bytes.length,
-                    ethernet: null,
-                    ipv4: null,
-                    ipv6: null,
-                    tcp: p.protocol === "TCP" ? { src_port: parseInt(p.src_endpoint.split(":").pop() || "0"), dst_port: parseInt(p.dst_endpoint.split(":").pop() || "0"), sequence: 0, ack_number: 0, data_offset: 0, flags: { syn: false, ack: false, fin: false, rst: false, psh: false, urg: false }, window: 0, checksum: 0, urgent_pointer: 0 } : null,
-                    udp: p.protocol === "UDP" ? { src_port: parseInt(p.src_endpoint.split(":").pop() || "0"), dst_port: parseInt(p.dst_endpoint.split(":").pop() || "0"), length: 0, checksum: 0 } : null,
-                    raw_bytes: p.raw_bytes,
-                    payload: p.payload,
-                    payload_hex: p.payload_hex,
-                    payload_ascii: ascii,
-                    capture_index: 0,
+                commands
+                  .reparsePacket(p.raw_bytes, "library")
+                  .then((parsed) => {
+                    setSelectedPacket(parsed);
+                  })
+                  .catch(() => {
+                    const ascii = p.payload
+                      .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "."))
+                      .join("");
+                    setSelectedPacket({
+                      id: p.id,
+                      seq: 0,
+                      timestamp: p.timestamp,
+                      interface: "library",
+                      frame_length: p.raw_bytes.length,
+                      ethernet: null,
+                      ipv4: null,
+                      ipv6: null,
+                      tcp:
+                        p.protocol === "TCP"
+                          ? {
+                              src_port: parseInt(p.src_endpoint.split(":").pop() || "0"),
+                              dst_port: parseInt(p.dst_endpoint.split(":").pop() || "0"),
+                              sequence: 0,
+                              ack_number: 0,
+                              data_offset: 0,
+                              flags: {
+                                syn: false,
+                                ack: false,
+                                fin: false,
+                                rst: false,
+                                psh: false,
+                                urg: false,
+                              },
+                              window: 0,
+                              checksum: 0,
+                              urgent_pointer: 0,
+                            }
+                          : null,
+                      udp:
+                        p.protocol === "UDP"
+                          ? {
+                              src_port: parseInt(p.src_endpoint.split(":").pop() || "0"),
+                              dst_port: parseInt(p.dst_endpoint.split(":").pop() || "0"),
+                              length: 0,
+                              checksum: 0,
+                            }
+                          : null,
+                      raw_bytes: p.raw_bytes,
+                      payload: p.payload,
+                      payload_hex: p.payload_hex,
+                      payload_ascii: ascii,
+                      capture_index: 0,
+                    });
                   });
-                });
                 setView("capture");
               }}
               setStatusMessage={setStatusMessage}
@@ -290,14 +346,9 @@ function AppInner() {
             />
           )}
           {view === "fuzzer" && (
-            <FuzzerView
-              selectedPacket={selectedPacket}
-              setStatusMessage={setStatusMessage}
-            />
+            <FuzzerView selectedPacket={selectedPacket} setStatusMessage={setStatusMessage} />
           )}
-          {view === "stats" && (
-            <StatsView packetCount={packets.length} />
-          )}
+          {view === "stats" && <StatsView packetCount={packets.length} />}
         </main>
       </div>
     </div>

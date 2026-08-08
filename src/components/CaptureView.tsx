@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { commands } from "../commands";
 import { useToast } from "./Toast";
 import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
@@ -44,10 +44,6 @@ export function CaptureView({
   const { showContextMenu } = useContextMenu();
 
   useEffect(() => {
-    loadInterfaces();
-  }, []);
-
-  useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(() => setDebouncedFilter(filterText), 150);
     return () => {
@@ -61,7 +57,7 @@ export function CaptureView({
     return () => window.removeEventListener("packetforge:save-packet", handler);
   }, []);
 
-  const loadInterfaces = async () => {
+  const loadInterfaces = useCallback(async () => {
     try {
       const ifaces = await commands.listInterfaces();
       setInterfaces(ifaces);
@@ -71,7 +67,11 @@ export function CaptureView({
     } catch (e) {
       setStatusMessage(`Failed to list interfaces: ${e}`);
     }
-  };
+  }, [selectedInterface, setStatusMessage]);
+
+  useEffect(() => {
+    loadInterfaces();
+  }, [loadInterfaces]);
 
   const handleStartCapture = async () => {
     if (!selectedInterface) {
@@ -198,34 +198,44 @@ export function CaptureView({
           toast("Payload hex copied", "success");
         },
       },
-      { label: "Copy full hex", icon: "📋", onClick: () => {
-          navigator.clipboard.writeText(p.raw_bytes.map((b) => b.toString(16).padStart(2, "0")).join(" "));
-        toast("Full hex copied", "success");
-      }},
+      {
+        label: "Copy full hex",
+        icon: "📋",
+        onClick: () => {
+          navigator.clipboard.writeText(
+            p.raw_bytes.map((b) => b.toString(16).padStart(2, "0")).join(" ")
+          );
+          toast("Full hex copied", "success");
+        },
+      },
     ];
     showContextMenu(e, items);
   };
 
-  const filteredPackets = useMemo(() => packets.filter((p) => {
-    if (protocolFilter !== "all") {
-      const proto = p.tcp ? "tcp" : p.udp ? "udp" : "other";
-      if (proto !== protocolFilter) return false;
-    }
-    if (!debouncedFilter) return true;
-    const lower = debouncedFilter.toLowerCase();
-    return (
-      p.payload_hex.toLowerCase().includes(lower) ||
-      p.payload_ascii.toLowerCase().includes(lower) ||
-      (p.ipv4?.src_ip.includes(lower)) ||
-      (p.ipv4?.dst_ip.includes(lower)) ||
-      (p.ipv6?.src_ip?.includes(lower)) ||
-      (p.ipv6?.dst_ip?.includes(lower)) ||
-      (p.tcp?.src_port.toString().includes(lower)) ||
-      (p.tcp?.dst_port.toString().includes(lower)) ||
-      (p.udp?.src_port.toString().includes(lower)) ||
-      (p.udp?.dst_port.toString().includes(lower))
-    );
-  }), [packets, debouncedFilter, protocolFilter]);
+  const filteredPackets = useMemo(
+    () =>
+      packets.filter((p) => {
+        if (protocolFilter !== "all") {
+          const proto = p.tcp ? "tcp" : p.udp ? "udp" : "other";
+          if (proto !== protocolFilter) return false;
+        }
+        if (!debouncedFilter) return true;
+        const lower = debouncedFilter.toLowerCase();
+        return (
+          p.payload_hex.toLowerCase().includes(lower) ||
+          p.payload_ascii.toLowerCase().includes(lower) ||
+          p.ipv4?.src_ip.includes(lower) ||
+          p.ipv4?.dst_ip.includes(lower) ||
+          p.ipv6?.src_ip?.includes(lower) ||
+          p.ipv6?.dst_ip?.includes(lower) ||
+          p.tcp?.src_port.toString().includes(lower) ||
+          p.tcp?.dst_port.toString().includes(lower) ||
+          p.udp?.src_port.toString().includes(lower) ||
+          p.udp?.dst_port.toString().includes(lower)
+        );
+      }),
+    [packets, debouncedFilter, protocolFilter]
+  );
 
   return (
     <div
@@ -294,22 +304,19 @@ export function CaptureView({
               {filteredPackets.length}/{packets.length}
             </span>
           )}
-          <button onClick={handleClear} className={`btn text-xs ${confirmClear ? "btn-danger" : "btn-secondary"}`}>
+          <button
+            onClick={handleClear}
+            className={`btn text-xs ${confirmClear ? "btn-danger" : "btn-secondary"}`}
+          >
             {confirmClear ? "Confirm?" : "Clear"}
           </button>
           {selectedPacket && (
-            <button
-              onClick={() => setShowSaveDialog(true)}
-              className="btn btn-primary text-xs"
-            >
+            <button onClick={() => setShowSaveDialog(true)} className="btn btn-primary text-xs">
               Save
             </button>
           )}
           {packets.length > 0 && (
-            <button
-              onClick={() => setShowExportDialog(true)}
-              className="btn btn-secondary text-xs"
-            >
+            <button onClick={() => setShowExportDialog(true)} className="btn btn-secondary text-xs">
               Export
             </button>
           )}
@@ -351,9 +358,7 @@ export function CaptureView({
         />
       </div>
       <div className="w-[480px] min-w-[380px] shrink-0">
-        <PacketDetail
-          packet={selectedPacket}
-        />
+        <PacketDetail packet={selectedPacket} />
       </div>
 
       {showSaveDialog && selectedPacket && (
@@ -365,10 +370,7 @@ export function CaptureView({
       )}
 
       {showExportDialog && (
-        <ExportDialog
-          packets={packets}
-          onClose={() => setShowExportDialog(false)}
-        />
+        <ExportDialog packets={packets} onClose={() => setShowExportDialog(false)} />
       )}
     </div>
   );
@@ -431,7 +433,16 @@ function SaveDialog({
             Cancel
           </button>
           <button
-            onClick={() => onSave(name, description, tags.split(",").map((t) => t.trim()).filter(Boolean))}
+            onClick={() =>
+              onSave(
+                name,
+                description,
+                tags
+                  .split(",")
+                  .map((t) => t.trim())
+                  .filter(Boolean)
+              )
+            }
             disabled={!name.trim()}
             className="btn btn-primary text-xs disabled:opacity-50"
           >
@@ -443,13 +454,7 @@ function SaveDialog({
   );
 }
 
-function ExportDialog({
-  packets,
-  onClose,
-}: {
-  packets: CapturedPacket[];
-  onClose: () => void;
-}) {
+function ExportDialog({ packets, onClose }: { packets: CapturedPacket[]; onClose: () => void }) {
   const [format, setFormat] = useState<"pcap" | "json">("pcap");
   const [filename, setFilename] = useState("capture");
   const [exporting, setExporting] = useState(false);
@@ -488,7 +493,9 @@ function ExportDialog({
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div className="panel p-4 w-[400px] space-y-3">
         <h3 className="text-sm font-semibold text-white">Export Packets</h3>
-        <p className="text-xs text-gray-500">{packets.length} packet{packets.length !== 1 ? "s" : ""} will be exported</p>
+        <p className="text-xs text-gray-500">
+          {packets.length} packet{packets.length !== 1 ? "s" : ""} will be exported
+        </p>
         <div className="flex gap-2">
           <button
             onClick={() => setFormat("pcap")}
@@ -512,7 +519,8 @@ function ExportDialog({
           autoFocus
         />
         <p className="text-[10px] text-gray-600 font-mono">
-          Saves to: {filename}{format === "pcap" ? ".pcap" : ".json"}
+          Saves to: {filename}
+          {format === "pcap" ? ".pcap" : ".json"}
         </p>
         <div className="flex justify-end gap-2 pt-1">
           <button onClick={onClose} className="btn btn-secondary text-xs">

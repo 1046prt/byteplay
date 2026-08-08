@@ -12,11 +12,7 @@ interface ReplayViewProps {
   setStatusMessage: (msg: string) => void;
 }
 
-export function ReplayView({
-  selectedPacket,
-  replayHistory,
-  onRefreshHistory,
-}: ReplayViewProps) {
+export function ReplayView({ selectedPacket, replayHistory, onRefreshHistory }: ReplayViewProps) {
   const [targetHost, setTargetHost] = useState("127.0.0.1");
   const [targetPort, setTargetPort] = useState(String(DEFAULT_PORT));
   const [protocol, setProtocol] = useState("TCP");
@@ -196,9 +192,7 @@ export function ReplayView({
                   </div>
                 </div>
                 {result.error && (
-                  <div className="text-xs text-red-400 mt-2 font-mono">
-                    {result.error}
-                  </div>
+                  <div className="text-xs text-red-400 mt-2 font-mono">{result.error}</div>
                 )}
               </div>
 
@@ -212,9 +206,9 @@ export function ReplayView({
                     <div className="mt-2">
                       <h4 className="text-[10px] text-gray-500 mb-1">ASCII</h4>
                       <div className="font-mono text-xs text-gray-400 whitespace-pre-wrap break-all">
-                        {result.response.map((b) =>
-                          b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "."
-                        ).join("")}
+                        {result.response
+                          .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "."))
+                          .join("")}
                       </div>
                     </div>
                   )}
@@ -231,9 +225,7 @@ export function ReplayView({
         </div>
         <div className="flex-1 overflow-auto">
           {replayHistory.length === 0 ? (
-            <div className="p-3 text-xs text-gray-600 text-center">
-              No replay history yet
-            </div>
+            <div className="p-3 text-xs text-gray-600 text-center">No replay history yet</div>
           ) : (
             <div className="space-y-1 p-2">
               {replayHistory.map((r) => (
@@ -251,16 +243,12 @@ export function ReplayView({
                     <span className="text-gray-300 font-mono">
                       {r.target_host}:{r.target_port}
                     </span>
-                    {r.protocol && (
-                      <span className="text-gray-600">{r.protocol}</span>
-                    )}
+                    {r.protocol && <span className="text-gray-600">{r.protocol}</span>}
                   </div>
                   <div className="text-gray-600">
                     {r.bytes_sent} bytes • {r.duration_ms}ms
                   </div>
-                  {r.error && (
-                    <div className="text-red-400 truncate">{r.error}</div>
-                  )}
+                  {r.error && <div className="text-red-400 truncate">{r.error}</div>}
                 </div>
               ))}
             </div>
