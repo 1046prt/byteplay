@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>byteplay — Network Packet Analyzer &amp; Replayer</title>
+  <meta name="description" content="byteplay is a free, open-source, cross-platform network packet analyzer and replayer. Capture, edit, and replay raw TCP/UDP packets to test server resilience." />
+  <meta property="og:title" content="byteplay — Network Packet Analyzer &amp; Replayer" />
+  <meta property="og:description" content="Capture, edit, and replay raw TCP/UDP packets. Free, open-source, local-first." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://byteplay.prakashraj.me/" />
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-soft: #111827;
+      --panel: #161b26;
+      --border: #1e293b;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --dim: #6b7280;
+      --accent: #3b82f6;
+      --accent-2: #22d3ee;
+      --green: #34d399;
+      --red: #f87171;
+      --amber: #fbbf24;
+      --mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent-2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .container { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+    /* ---------- Nav ---------- */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(13, 17, 23, 0.85);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .brand:hover { text-decoration: none; }
+    .logo {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #fff;
+    }
+    .nav-links { display: flex; gap: 24px; font-size: 13px; }
+    .nav-links a { color: var(--muted); }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ---------- Hero ---------- */
+    header.hero {
+      padding: 88px 0 72px;
+      text-align: center;
+      background:
+        radial-gradient(ellipse 60% 50% at 50% 0%, rgba(59, 130, 246, 0.15), transparent),
+        radial-gradient(ellipse 40% 40% at 80% 20%, rgba(34, 211, 238, 0.08), transparent);
+    }
+    .hero .badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent-2);
+      border: 1px solid rgba(34, 211, 238, 0.35);
+      background: rgba(34, 211, 238, 0.08);
+      border-radius: 999px;
+      padding: 4px 14px;
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: clamp(32px, 6vw, 56px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+    h1 .gradient {
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .tagline {
+      max-width: 640px;
+      margin: 20px auto 0;
+      font-size: 17px;
+      color: var(--muted);
+    }
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 36px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 22px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .btn:hover { text-decoration: none; transform: translateY(-1px); border-color: #334155; }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border: none;
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(59, 130, 246, 0.35);
+    }
+    .btn-primary:hover { box-shadow: 0 6px 28px rgba(59, 130, 246, 0.5); }
+    .btn .os { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+    .hero-note { margin-top: 18px; font-size: 12px; color: var(--dim); }
+
+    /* ---------- Sections ---------- */
+    section { padding: 72px 0; border-top: 1px solid var(--border); }
+    .section-head { text-align: center; margin-bottom: 48px; }
+    .section-head .kicker {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent-2);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .section-head h2 { font-size: clamp(24px, 4vw, 34px); margin-top: 8px; }
+    .section-head p { color: var(--muted); margin-top: 10px; max-width: 560px; margin-left: auto; margin-right: auto; }
+
+    /* Features grid */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .feature {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      transition: border-color 0.15s ease;
+    }
+    .feature:hover { border-color: #334155; }
+    .feature .icon {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent-2);
+      background: rgba(34, 211, 238, 0.08);
+      border: 1px solid rgba(34, 211, 238, 0.25);
+      margin-bottom: 14px;
+    }
+    .feature h3 { font-size: 15px; margin-bottom: 8px; }
+    .feature p { font-size: 13.5px; color: var(--muted); }
+
+    /* Comparison table */
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 620px; }
+    th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    th { font-family: var(--mono); font-size: 12px; color: var(--dim); font-weight: 600; background: var(--bg-soft); }
+    tr:last-child td { border-bottom: none; }
+    td .check { color: var(--green); font-family: var(--mono); }
+    td .x { color: var(--dim); font-family: var(--mono); }
+
+    /* Terminal mock */
+    .terminal {
+      background: #0a0e17;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      font-family: var(--mono);
+      font-size: 13px;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    .terminal .bar {
+      display: flex; align-items: center; gap: 6px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-soft);
+    }
+    .terminal .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .terminal .dot.r { background: #ef4444; }
+    .terminal .dot.y { background: #f59e0b; }
+    .terminal .dot.g { background: #10b981; }
+    .terminal .title { margin-left: 8px; color: var(--dim); font-size: 11px; }
+    .terminal pre { padding: 18px; overflow-x: auto; line-height: 1.7; }
+    .terminal .c { color: var(--dim); }
+    .terminal .ok { color: var(--green); }
+    .terminal .hl { color: var(--accent-2); }
+    .terminal .err { color: var(--red); }
+
+    /* Download cards */
+    .downloads {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .dl-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+    }
+    .dl-card .os-icon {
+      font-family: var(--mono);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--accent-2);
+      margin-bottom: 10px;
+    }
+    .dl-card h3 { font-size: 15px; margin-bottom: 6px; }
+    .dl-card p { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; }
+    .dl-card .btn { width: 100%; justify-content: center; }
+    .dl-note { text-align: center; font-size: 12.5px; color: var(--dim); margin-top: 20px; }
+
+    /* Security */
+    .security-list { max-width: 640px; margin: 0 auto; }
+    .security-list li {
+      list-style: none;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex; gap: 12px;
+      font-size: 14px;
+    }
+    .security-list li:last-child { border-bottom: none; }
+    .security-list .tag {
+      flex-shrink: 0;
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      height: fit-content;
+      margin-top: 2px;
+    }
+    .tag-green { color: var(--green); background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.3); }
+    .tag-amber { color: var(--amber); background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); }
+
+    /* Status / roadmap */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .status-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+    .status-card .label { font-size: 12px; color: var(--dim); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.08em; }
+    .status-card .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+    .status-card .value.green { color: var(--green); }
+    .status-card .value.amber { color: var(--amber); }
+    .status-card .value.blue { color: var(--accent-2); }
+    .status-card p { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+
+    /* Footer */
+    footer { border-top: 1px solid var(--border); padding: 40px 0; text-align: center; font-size: 13px; color: var(--dim); }
+    footer .links { display: flex; justify-content: center; gap: 20px; margin-bottom: 12px; flex-wrap: wrap; }
+    footer .mono { font-family: var(--mono); font-size: 12px; }
+
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      header.hero { padding: 64px 0 48px; }
+      section { padding: 56px 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="container">
+      <a class="brand" href="#top"><span class="logo">&lt;/&gt;</span>byteplay</a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#compare">Why byteplay</a>
+        <a href="#download">Download</a>
+        <a href="#security">Security</a>
+        <a href="#status">Status</a>
+        <a href="https://github.com/1046prt/byteplay">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="container">
+      <span class="badge">v0.2.0 &middot; open source &middot; MIT</span>
+      <h1>Capture. Edit. <span class="gradient">Replay.</span></h1>
+      <p class="tagline">
+        byteplay is a multi-platform network packet analyzer and replayer.
+        Capture raw TCP/UDP traffic, mutate it byte-by-byte, and replay it
+        against your own services to test server resilience &mdash; all from a
+        clean native desktop app.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="https://github.com/1046prt/byteplay/releases/latest">
+          Download byteplay
+        </a>
+        <a class="btn" href="https://github.com/1046prt/byteplay">View on GitHub</a>
+      </div>
+      <p class="hero-note">Windows &middot; macOS &middot; Linux &mdash; installers for every platform</p>
+    </div>
+  </header>
+
+  <section id="features">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Features</span>
+        <h2>Everything you need to probe your services</h2>
+        <p>A full round-trip workflow: capture, inspect, modify, replay, and fuzz.</p>
+      </div>
+      <div class="features">
+        <div class="feature">
+          <div class="icon">01</div>
+          <h3>Live packet capture</h3>
+          <p>Raw-socket capture with a virtualized packet list, BPF-style filtering, and per-minute statistics. 50k-packet ring buffer keeps the UI instant.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">02</div>
+          <h3>Byte-level hex editing</h3>
+          <p>Dual-pane hex/ASCII viewer with a visual diff between your original and modified packets. Every byte accounted for.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">03</div>
+          <h3>Raw TCP/UDP replay</h3>
+          <p>Resend captured or edited packets to any host:port. Protocol-agnostic &mdash; works below the application layer.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">04</div>
+          <h3>Mutation fuzzing</h3>
+          <p>Deterministic, seeded fuzzer that mutates payloads and replays them with live progress and a cancel button. Bounded and safe.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">05</div>
+          <h3>Replay sequences</h3>
+          <p>Chain packets into scripted session replays with per-step delays and timeouts &mdash; ideal for repeatable testing.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">06</div>
+          <h3>Packet library</h3>
+          <p>Save, tag, and organize packets in a local SQLite library with full replay history and PCAP/JSON export.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="compare">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Comparison</span>
+        <h2>Why byteplay?</h2>
+        <p>Most tools do one thing. byteplay closes the full loop.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Capability</th><th>Wireshark</th><th>Burp Suite</th><th>Scapy</th><th>byteplay</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Packet capture &amp; analysis</td><td><span class="check">YES</span></td><td><span class="x">no</span></td><td><span class="check">YES</span></td><td><span class="check">YES</span></td></tr>
+            <tr><td>Edit bytes, then resend</td><td><span class="x">no</span></td><td><span class="x">no</span></td><td><span class="check">YES</span></td><td><span class="check">YES</span></td></tr>
+            <tr><td>Protocol-agnostic (raw TCP/UDP)</td><td><span class="x">no</span></td><td><span class="x">HTTP only</span></td><td><span class="check">YES</span></td><td><span class="check">YES</span></td></tr>
+            <tr><td>GUI, no scripting</td><td><span class="check">YES</span></td><td><span class="check">YES</span></td><td><span class="x">no</span></td><td><span class="check">YES</span></td></tr>
+            <tr><td>Mutation fuzzer + sequences</td><td><span class="x">no</span></td><td><span class="x">no</span></td><td><span class="check">YES</span></td><td><span class="check">YES</span></td></tr>
+            <tr><td>Persistent packet library</td><td><span class="x">no</span></td><td><span class="x">no</span></td><td><span class="x">no</span></td><td><span class="check">YES</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="terminal" style="margin-top: 40px;">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">byteplay &mdash; capture &rarr; edit &rarr; replay</span>
+        </div>
+        <pre><span class="c"># Capture 47 packets on eth0</span>
+<span class="hl">&gt;</span> capture 3,214 packets  &middot;  1.8 MB  &middot;  62% TCP / 38% UDP
+
+<span class="c"># Edit the payload of packet #12</span>
+<span class="hl">&gt;</span> <span class="err">GET /admin HTTP/1.1</span> <span class="c">&rarr;</span> <span class="ok">GET /admin\x00\xff HTTP/1.1</span>
+<span class="hl">&gt;</span> 3 bytes changed  &middot;  diff shown byte-by-byte
+
+<span class="c"># Replay it against your test server</span>
+<span class="hl">&gt;</span> replay 127.0.0.1:8080  &middot;  <span class="ok">200 OK, 2ms</span>
+
+<span class="c"># Fuzz 10,000 mutations &mdash; cancel anytime</span>
+<span class="hl">&gt;</span> fuzz 10,000 iterations  &middot;  <span class="ok">done in 4m 12s</span>  &middot;  3 anomalies found</pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Download</span>
+        <h2>Get byteplay v0.2.0</h2>
+        <p>Free forever. MIT licensed. No account, no telemetry, no data leaves your machine.</p>
+      </div>
+      <div class="downloads">
+        <div class="dl-card">
+          <div class="os-icon">WIN</div>
+          <h3>Windows</h3>
+          <p>NSIS installer or MSI &middot; x64<br />Requires Npcap for capture</p>
+          <a class="btn btn-primary" href="https://github.com/1046prt/byteplay/releases/latest">Download .exe</a>
+        </div>
+        <div class="dl-card">
+          <div class="os-icon">MAC</div>
+          <h3>macOS</h3>
+          <p>Apple Silicon (aarch64)<br />Requires Xcode CLT for capture</p>
+          <a class="btn btn-primary" href="https://github.com/1046prt/byteplay/releases/latest">Download .dmg</a>
+        </div>
+        <div class="dl-card">
+          <div class="os-icon">LNX</div>
+          <h3>Linux</h3>
+          <p>Debian package or AppImage &middot; amd64<br />Requires libpcap</p>
+          <a class="btn btn-primary" href="https://github.com/1046prt/byteplay/releases/latest">Download .deb</a>
+        </div>
+      </div>
+      <p class="dl-note">
+        Not sure which file? Open the
+        <a href="https://github.com/1046prt/byteplay/releases/latest">full release page</a>
+        &mdash; Windows users need
+        <a href="https://npcap.com/">Npcap</a>
+        installed to capture traffic.
+      </p>
+    </div>
+  </section>
+
+  <section id="security">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Security &amp; Ethics</span>
+        <h2>Built to be responsible by default</h2>
+        <p>Packet crafting is powerful. byteplay keeps the guardrails on until you explicitly take them off.</p>
+      </div>
+      <ul class="security-list">
+        <li>
+          <span class="tag tag-green">DEFAULT</span>
+          <span>Replay and fuzzing targets are restricted to <strong>localhost and private network ranges</strong> (RFC 1918).</span>
+        </li>
+        <li>
+          <span class="tag tag-amber">OPT-IN</span>
+          <span>External targets require an explicit <strong>Allow external</strong> checkbox, per session.</span>
+        </li>
+        <li>
+          <span class="tag tag-green">LOCAL</span>
+          <span>100% local-first. All data lives in a local SQLite database &mdash; <strong>zero telemetry, zero cloud</strong>.</span>
+        </li>
+        <li>
+          <span class="tag tag-green">AUDITED</span>
+          <span>Every replay is logged locally with timestamp, target, and payload hash.</span>
+        </li>
+        <li>
+          <span class="tag tag-amber">ETHICS</span>
+          <span>MIT license: <em>for use only against systems you own or have explicit authorization to test.</em></span>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="status">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Project status</span>
+        <h2>Shipping, tested, and open</h2>
+      </div>
+      <div class="status-grid">
+        <div class="status-card">
+          <div class="label">Current release</div>
+          <div class="value green">v0.2.0</div>
+          <p>Published with signed installers on Windows, macOS, and Linux.</p>
+        </div>
+        <div class="status-card">
+          <div class="label">Automated tests</div>
+          <div class="value blue">41 Rust + 13 UI</div>
+          <p>Parsing, capture, replay, fuzzing, storage, and IPC contracts. CI runs on every push across 3 OSes.</p>
+        </div>
+        <div class="status-card">
+          <div class="label">Quality gates</div>
+          <div class="value green">Green</div>
+          <p>clippy -D warnings, rustfmt, eslint, tsc, prettier &mdash; all enforced in CI.</p>
+        </div>
+        <div class="status-card">
+          <div class="label">License</div>
+          <div class="value">MIT</div>
+          <p>Free to use, modify, and distribute. Contributions welcome.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <div class="links">
+        <a href="https://github.com/1046prt/byteplay">GitHub repository</a>
+        <a href="https://github.com/1046prt/byteplay/releases">Releases</a>
+        <a href="https://github.com/1046prt/byteplay/issues">Report a bug</a>
+        <a href="https://prakashraj.me">prakashraj.me</a>
+      </div>
+      <div class="mono">byteplay &middot; MIT License &middot; For use only against systems you own or are authorized to test</div>
+    </div>
+  </footer>
+
+</body>
+</html>
