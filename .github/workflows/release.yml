@@ -8,13 +8,9 @@ permissions:
   contents: write
 
 env:
-  WINDOWS_SIGNING_CERT: ${{ secrets.WINDOWS_SIGNING_CERT }}
-  WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
-  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-  APPLE_ID: ${{ secrets.APPLE_ID }}
-  APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+  APPLE_CERTIFICATE_SECRET: ${{ secrets.APPLE_CERTIFICATE }}
+  WINDOWS_SIGNING_CERT_SECRET: ${{ secrets.WINDOWS_SIGNING_CERT }}
+  WINDOWS_SIGNING_CERT_PASSWORD_SECRET: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
 
 jobs:
   release:
@@ -26,7 +22,7 @@ jobs:
           - os: ubuntu-latest
             bundles: deb,appimage
           - os: windows-latest
-            bundles: msi,nsi
+            bundles: msi,nsis
           - os: macos-latest
             bundles: app,dmg
     runs-on: ${{ matrix.os }}
@@ -63,38 +59,45 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Import Windows signing certificate
-        if: runner.os == 'Windows' && env.WINDOWS_SIGNING_CERT != ''
+      - name: Export macOS signing secrets
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE_SECRET != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          {
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Export Windows signing certificate
+        if: runner.os == 'Windows' && env.WINDOWS_SIGNING_CERT_SECRET != ''
         shell: pwsh
         run: |
           $certPath = Join-Path $env:RUNNER_TEMP 'signing-cert.pfx'
-          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERT))
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERT_SECRET))
           "WINDOWS_SIGNING_CERT_PATH=$certPath" | Add-Content -Path $env:GITHUB_ENV
-
-      - name: Import Apple Developer certificate
-        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
-        shell: bash
-        run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/apple-cert.p12"
-          KEYCHAIN="$RUNNER_TEMP/apple-build.keychain"
-          security create-keychain -p "byteplay-ci" "$KEYCHAIN"
-          security default-keychain -s "$KEYCHAIN"
-          security unlock-keychain -p "byteplay-ci" "$KEYCHAIN"
-          security import "$RUNNER_TEMP/apple-cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "byteplay-ci" "$KEYCHAIN"
 
       - name: Build Tauri app
         run: npm run tauri build -- --bundles ${{ matrix.bundles }}
 
       - name: Sign Windows artifacts
-        if: runner.os == 'Windows' && env.WINDOWS_SIGNING_CERT != ''
+        if: runner.os == 'Windows' && env.WINDOWS_SIGNING_CERT_SECRET != ''
         shell: pwsh
         run: |
           $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter 'signtool.exe' -ErrorAction SilentlyContinue |
             Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $signtool) { throw 'signtool.exe not found' }
           Get-ChildItem 'src-tauri\target\release\bundle' -Recurse -Include *.exe,*.msi | ForEach-Object {
-            & $signtool.FullName sign /fd SHA256 /f $env:WINDOWS_SIGNING_CERT_PATH /p $env:WINDOWS_SIGNING_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 /v $_.FullName
+            & $signtool.FullName sign /fd SHA256 /f $env:WINDOWS_SIGNING_CERT_PATH /p $env:WINDOWS_SIGNING_CERT_PASSWORD_SECRET /tr http://timestamp.digicert.com /td SHA256 /v $_.FullName
             if ($LASTEXITCODE -ne 0) { throw "Signing failed for $($_.FullName)" }
           }
 
