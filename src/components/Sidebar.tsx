@@ -38,9 +38,7 @@ export function Sidebar({
     <aside className="w-[220px] bg-[#0d1117] border-r border-[#1e293b] flex flex-col shrink-0">
       <div className="p-4 border-b border-[#1e293b]">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-sm font-bold">
-            BP
-          </div>
+          <img src="/logo-mark.svg" alt="byteplay logo" className="w-8 h-8" draggable={false} />
           <div>
             <h1 className="text-sm font-semibold text-white">byteplay</h1>
             <p className="text-[10px] text-gray-500">Packet Analyzer</p>

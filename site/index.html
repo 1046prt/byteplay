@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>byteplay — capture, mark up, and replay raw packets</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#040d1a" />
     <meta
       name="description"
       content="byteplay is a free, open-source, cross-platform packet analyzer and replayer. Capture raw TCP/UDP traffic, edit it byte-by-byte, and send it back out to test what your service actually does with it."
@@ -15,6 +20,14 @@
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://byteplay.prakashraj.me/" />
+    <meta property="og:image" content="https://byteplay.prakashraj.me/byteplay.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="byteplay — capture, mark up, and replay raw packets" />
+    <meta
+      name="twitter:description"
+      content="Capture raw TCP/UDP traffic, edit it byte-by-byte, and replay it. Free, open source, local-first."
+    />
+    <meta name="twitter:image" content="https://byteplay.prakashraj.me/byteplay.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -117,7 +130,8 @@
         letter-spacing: 0.06em;
         text-transform: uppercase;
       }
-      .brand svg {
+      .brand svg,
+      .brand img {
         display: block;
       }
       .mast-nav {
@@ -657,10 +671,7 @@
     <header class="mast">
       <div class="wrap mast-inner">
         <a class="brand" href="#top">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <rect x="1" y="1" width="16" height="16" stroke="currentColor" stroke-width="1.2" />
-            <path d="M1 6H17M6 1V17" stroke="currentColor" stroke-width="1" />
-          </svg>
+          <img src="/logo-mark.svg" alt="byteplay logo" width="20" height="20" />
           byteplay
         </a>
         <nav class="mast-nav">
